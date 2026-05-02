@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Fast Wind Shift",
+    "description": "Simulates a rapid wind direction change from SW to NW mid-evacuation, stressing route viability on the eastern corridors.",
+    "ignition_point": { "lat": 39.7596, "lon": -121.6219 },
+    "wind_speed": 18,
+    "wind_direction": 315,
+    "wind_gust": 30,
+    "relative_humidity": 12
+  },
+  {
+    "name": "Night Evacuation",
+    "description": "Low-visibility nighttime scenario with calm winds but higher civilian delay due to reduced awareness and road congestion.",
+    "ignition_point": { "lat": 39.7550, "lon": -121.6150 },
+    "wind_speed": 6,
+    "wind_direction": 180,
+    "wind_gust": 10,
+    "relative_humidity": 35
+  },
+  {
+    "name": "School Zone",
+    "description": "Ignition near Paradise schools during pickup hours. High population density with many vulnerable evacuees and limited road capacity.",
+    "ignition_point": { "lat": 39.7620, "lon": -121.6080 },
+    "wind_speed": 12,
+    "wind_direction": 225,
+    "wind_gust": 20,
+    "relative_humidity": 22
+  }
+]

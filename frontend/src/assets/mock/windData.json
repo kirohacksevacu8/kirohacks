@@ -1,0 +1,8 @@
+{
+  "wind_speed": 14,
+  "wind_direction": 225,
+  "wind_gust": 22,
+  "relative_humidity": 18,
+  "forecast_text": "Sunny and Windy. SW winds 14 mph with gusts to 22 mph.",
+  "source": "nws"
+}
