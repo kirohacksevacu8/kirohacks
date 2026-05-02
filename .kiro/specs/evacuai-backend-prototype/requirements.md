@@ -2,7 +2,7 @@
 
 ## Introduction
 
-EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty using Monte Carlo methods and evaluates evacuation route viability for first responders and emergency planners. The system uses a simplified Rothermel fire spread model on a grid, runs ~500 Monte Carlo simulations per scenario, and compares baseline vs. optimized evacuation strategies over a real road network. The demo region is Paradise, CA (Camp Fire 2018). The backend serves results via a FastAPI REST API and is also runnable as a standalone CLI tool.
+EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty using Monte Carlo methods and evaluates evacuation route viability for first responders and emergency planners. The system uses a simplified Rothermel fire spread model on a grid, runs ~500 Monte Carlo simulations per scenario, and compares baseline vs. optimized evacuation strategies over a real road network. The demo region is Paradise, CA (Camp Fire 2018). The backend serves results via a synchronous FastAPI REST API and is also runnable as a standalone CLI tool.
 
 **Skills Reference:** engineering-backend-architect (system architecture, API design, service decomposition), engineering-data-engineer (data pipeline design, seed data processing, data quality).
 
@@ -12,7 +12,7 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 - **Monte_Carlo_Engine**: The module that orchestrates ~500 stochastic simulation runs per scenario, sampling wind speed, wind direction, civilian delay, and road closure probability from defined distributions.
 - **Evacuation_Optimizer**: The module that computes evacuation routes over a NetworkX DiGraph road network, comparing baseline (shortest-path) and optimized (multi-factor cost) strategies.
 - **Data_Pipeline**: The collection of preprocessing scripts and loaders that ingest seed data files and live wind data into simulation-ready formats.
-- **API_Layer**: The FastAPI application that exposes simulation, results, wind, and scenario endpoints with Pydantic-validated request/response schemas.
+- **API_Layer**: The FastAPI application that exposes synchronous simulation, results, wind, and scenario endpoints with Pydantic-validated request/response schemas.
 - **Fire_Grid**: A 2D NumPy float32 array representing the simulation area at 100m cell resolution, where each cell holds burn state, ignition time, and spread probability.
 - **Fuel_Grid**: A pre-processed NumPy float32 array derived from LANDFIRE FBFM40 data, containing spread rate multipliers (0.0–1.5) per cell.
 - **Road_Graph**: A NetworkX DiGraph built from pre-fetched OpenStreetMap data, where edges carry travel_time, capacity, fire_exposure, and closure_probability attributes.
@@ -26,9 +26,37 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 - **Rothermel_Model**: The simplified fire behavior model using base spread rate R0=0.05 km/min, wind factor exponent 0.1783, and moisture dampening up to 0.8 reduction.
 - **Pydantic_Schema**: A strict data contract defined using Pydantic models for all API request and response payloads.
 
+## Development Phases & Priority
+
+Requirements are organized into four incremental phases. Each phase builds on the previous and produces a testable, runnable system.
+
+### Phase 1 — MVP: Fire Simulation + Monte Carlo + CLI (Priority: Critical)
+- Requirement 1: Fire Spread Simulation on Grid
+- Requirement 2: Monte Carlo Stochastic Engine
+- Requirement 3: Seed Data Loading and Preprocessing
+- Requirement 7: CLI Execution Mode
+- Requirement 8: Project Structure and Module Separation
+
+### Phase 2 — Routing: Road Graph + Basic Evacuation (Priority: High)
+- Requirement 5: Evacuation Route Optimization (baseline shortest-path only)
+- Requirement 9: Demo Region Configuration
+
+### Phase 3 — API: FastAPI Layer + Optimized Routing (Priority: High)
+- Requirement 4: Live Wind Data Fetch
+- Requirement 6: REST API Layer (synchronous)
+- Requirement 5 (extended): Optimized cost-function routing and zone ordering
+
+### Phase 4 — Polish: Output Serialization + Advanced Features (Priority: Medium)
+- Requirement 10: Simulation Output Serialization
+- Requirement 5 (extended): Full viability scoring, cutoff times, failure risk
+
+---
+
 ## Requirements
 
 ### Requirement 1: Fire Spread Simulation on Grid
+
+**Priority:** Critical (Phase 1 — MVP)
 
 **User Story:** As an evacuation planner, I want to simulate wildfire spread on a realistic terrain grid, so that I can see how fire propagates under given conditions.
 
@@ -43,40 +71,46 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 
 ### Requirement 2: Monte Carlo Stochastic Engine
 
+**Priority:** Critical (Phase 1 — MVP)
+
 **User Story:** As an evacuation planner, I want to run hundreds of stochastic simulations per scenario, so that I can understand the range of possible fire outcomes and make probability-informed decisions.
 
 #### Acceptance Criteria
 
 1. WHEN a scenario is submitted, THE Monte_Carlo_Engine SHALL execute approximately 500 independent simulation runs with stochastically sampled parameters.
-2. THE Monte_Carlo_Engine SHALL sample wind speed from a Normal distribution centered on the NWS forecast value with σ=3 mph, clamped to the NWS wind gust value as an upper bound.
-3. THE Monte_Carlo_Engine SHALL sample wind direction from a Normal distribution centered on the NWS forecast direction (converted to degrees) with σ=15°.
+2. THE Monte_Carlo_Engine SHALL sample wind speed from a Normal distribution centered on the provided wind speed value with σ=3 mph, clamped to the wind gust value as an upper bound.
+3. THE Monte_Carlo_Engine SHALL sample wind direction from a Normal distribution centered on the provided wind direction (in degrees) with σ=15°.
 4. THE Monte_Carlo_Engine SHALL sample civilian evacuation delay from a Uniform(2, 15) distribution in minutes per run.
 5. THE Monte_Carlo_Engine SHALL sample road closure probability per edge from a Beta(1.5, 8.5) distribution per run.
-6. WHEN all runs complete, THE Monte_Carlo_Engine SHALL aggregate results into: a Burn_Probability_Map, arrival time distributions per cell, Zone Cutoff_Times, Route_Viability_Scores, evacuation success probability per zone, and uncertainty ranges for each metric.
-7. THE Monte_Carlo_Engine SHALL produce stable probability estimates, where running the engine twice on the same scenario with the same random seed yields identical results.
+6. WHEN all runs complete, THE Monte_Carlo_Engine SHALL aggregate results into: a Burn_Probability_Map (fraction of runs each cell ignited) and per-cell arrival time statistics (mean, median).
+7. THE Monte_Carlo_Engine SHALL produce deterministic results when initialized with the same random seed.
 
 ### Requirement 3: Seed Data Loading and Preprocessing
+
+**Priority:** Critical (Phase 1 — MVP)
 
 **User Story:** As a developer, I want all non-wind data pre-bundled and loadable from local files, so that the demo runs reliably without external API dependencies.
 
 #### Acceptance Criteria
 
 1. THE Data_Pipeline SHALL load the Camp Fire perimeter from `camp_fire_perimeter.geojson` in `/backend/data/seed/` and rasterize the polygon into a binary burn mask on the Fire_Grid at 100m resolution.
-2. THE Data_Pipeline SHALL load the road network from `road_graph.json` in `/backend/data/seed/` and construct a NetworkX DiGraph with travel_time, capacity, fire_exposure, and closure_probability attributes per edge.
-3. THE Data_Pipeline SHALL load the fuel model grid from `fuel_grid.npy` in `/backend/data/seed/` as a float32 NumPy array with values in the range 0.0 to 1.5.
-4. THE Data_Pipeline SHALL load grid metadata from `grid_bounds.json` in `/backend/data/seed/` containing the bounding box coordinates and cell resolution.
+2. THE Data_Pipeline SHALL load the fuel model grid from `fuel_grid.npy` in `/backend/data/seed/` as a float32 NumPy array with values in the range 0.0 to 1.5.
+3. THE Data_Pipeline SHALL load grid metadata from `grid_bounds.json` in `/backend/data/seed/` containing the bounding box coordinates and cell resolution.
+4. THE Data_Pipeline SHALL load the road network from `road_graph.json` in `/backend/data/seed/` and construct a NetworkX DiGraph with travel_time and capacity attributes per edge.
 5. THE Data_Pipeline SHALL load population and vulnerability zones from `zones.geojson` in `/backend/data/seed/`, where each feature includes population, elderly_pct, disability_pct, and evacuation_priority_weight fields.
 6. THE Data_Pipeline SHALL load shelter locations from `shelters.json` in `/backend/data/seed/` with capacity and accessibility attributes per shelter.
-7. THE Data_Pipeline SHALL load scenario presets from `scenario_presets.json` in `/backend/data/seed/` containing named configurations for Fast Wind Shift, Night Evacuation, and School Zone scenarios.
+7. THE Data_Pipeline SHALL load scenario presets from `scenario_presets.json` in `/backend/data/seed/`.
 8. IF any seed data file is missing or malformed, THEN THE Data_Pipeline SHALL raise a descriptive error identifying the file path and the nature of the problem.
 
 ### Requirement 4: Live Wind Data Fetch
+
+**Priority:** High (Phase 3 — API)
 
 **User Story:** As an evacuation planner, I want current wind conditions fetched from the National Weather Service, so that simulations reflect real-time weather.
 
 #### Acceptance Criteria
 
-1. WHEN the system initializes a simulation or receives a wind fetch request, THE NWS_Client SHALL resolve grid coordinates by calling `GET https://api.weather.gov/points/{lat},{lon}` and extracting gridId, gridX, and gridY from the response.
+1. WHEN the system receives a wind fetch request, THE NWS_Client SHALL resolve grid coordinates by calling `GET https://api.weather.gov/points/{lat},{lon}` and extracting gridId, gridX, and gridY from the response.
 2. WHEN grid coordinates are resolved, THE NWS_Client SHALL fetch the hourly forecast by calling `GET https://api.weather.gov/gridpoints/{gridId}/{gridX},{gridY}/forecast/hourly` and parsing the first period for windSpeed, windDirection, windGust, and relativeHumidity.
 3. THE NWS_Client SHALL parse windSpeed and windGust string values (e.g., "14 mph") into numeric float values in mph.
 4. THE NWS_Client SHALL convert windDirection compass strings (N, NE, E, SE, S, SW, W, NW) to degree values (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°).
@@ -86,44 +120,60 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 
 ### Requirement 5: Evacuation Route Optimization
 
+**Priority:** High (Phase 2 baseline, Phase 3 optimized, Phase 4 full scoring)
+
 **User Story:** As an evacuation planner, I want to compare baseline and optimized evacuation strategies, so that I can recommend the safest routes for each zone.
 
 #### Acceptance Criteria
 
-1. THE Evacuation_Optimizer SHALL compute a baseline strategy using shortest-path routing (minimum travel_time) to the nearest shelter for each Zone on the Road_Graph.
-2. THE Evacuation_Optimizer SHALL compute an optimized strategy that minimizes a weighted cost function: `cost = α * travel_time + β * congestion + γ * fire_exposure + δ * road_closure`, where α, β, γ, δ are configurable weight coefficients.
-3. WHEN computing fire_exposure per edge, THE Evacuation_Optimizer SHALL calculate the fraction of the route segment that is burning at the estimated time of traversal based on the current simulation run's Fire_Grid state.
-4. THE Evacuation_Optimizer SHALL compute a Route_Viability_Score for each route as the percentage of Monte Carlo runs in which the route successfully reaches a shelter before fire arrival at any point along the route.
-5. THE Evacuation_Optimizer SHALL compute a Cutoff_Time for each Zone representing the latest timestep at which evacuation can begin and still have at least one route with a Route_Viability_Score above 50%.
-6. THE Evacuation_Optimizer SHALL produce an evacuation ordering of Zones sorted by descending evacuation_priority_weight, where `priority_weight = pop_weight + elderly_weight + disability_weight` and `priority_score = priority_weight * fire_exposure_probability`.
-7. THE Evacuation_Optimizer SHALL output per-zone results including: best route (baseline), best route (optimized), Route_Viability_Score for each, Cutoff_Time, and failure risk percentage.
+**Phase 2 — Baseline Routing:**
 
-### Requirement 6: REST API Layer
+1. THE Evacuation_Optimizer SHALL compute a baseline strategy using shortest-path routing (minimum travel_time via Dijkstra) to the nearest shelter for each Zone on the Road_Graph.
+2. THE Evacuation_Optimizer SHALL output per-zone results including: best baseline route as an ordered list of node IDs and total travel_time.
 
-**User Story:** As a frontend developer, I want a well-defined REST API with strict schema contracts, so that I can build the visualization layer independently.
+**Phase 3 — Optimized Routing:**
+
+3. THE Evacuation_Optimizer SHALL compute an optimized strategy that minimizes a weighted cost function: `cost = α * travel_time + β * congestion + γ * fire_exposure + δ * road_closure`, where α, β, γ, δ are configurable weight coefficients with sensible defaults (α=1.0, β=0.5, γ=2.0, δ=1.5).
+4. WHEN computing fire_exposure per edge, THE Evacuation_Optimizer SHALL calculate the fraction of the route segment that is burning at the estimated time of traversal based on the current simulation run's Fire_Grid state.
+
+**Phase 4 — Full Viability Scoring:**
+
+5. THE Evacuation_Optimizer SHALL compute a Route_Viability_Score for each route as the percentage of Monte Carlo runs in which the route successfully reaches a shelter before fire arrival at any point along the route.
+6. THE Evacuation_Optimizer SHALL compute a Cutoff_Time for each Zone representing the latest timestep at which evacuation can begin and still have at least one route with a Route_Viability_Score above 50%.
+7. THE Evacuation_Optimizer SHALL produce an evacuation ordering of Zones sorted by descending evacuation_priority_weight, where `priority_score = (pop_weight + elderly_weight * 2.0 + disability_weight * 1.5) * fire_exposure_probability`.
+8. THE Evacuation_Optimizer SHALL output per-zone results including: best route (baseline), best route (optimized), Route_Viability_Score for each, Cutoff_Time, and failure risk percentage.
+
+### Requirement 6: REST API Layer (Synchronous)
+
+**Priority:** High (Phase 3 — API)
+
+**User Story:** As a frontend developer, I want a well-defined synchronous REST API with strict schema contracts, so that I can build the visualization layer independently.
 
 #### Acceptance Criteria
 
-1. THE API_Layer SHALL expose a `POST /api/simulate` endpoint that accepts a Pydantic_Schema request body containing ignition point (lat, lon), wind parameters (speed, direction, gust, humidity), number of Monte Carlo runs, and optional scenario preset name, and returns a simulation job identifier.
-2. THE API_Layer SHALL expose a `GET /api/results/{job_id}` endpoint that returns the aggregated Monte Carlo results including Burn_Probability_Map, arrival time distributions, Zone Cutoff_Times, Route_Viability_Scores per zone, evacuation ordering, and baseline vs. optimized route comparisons.
-3. THE API_Layer SHALL expose a `GET /api/wind` endpoint that accepts latitude and longitude query parameters and returns the current NWS wind conditions parsed into numeric values.
-4. THE API_Layer SHALL expose a `GET /api/scenarios` endpoint that returns the list of available scenario presets from scenario_presets.json.
-5. THE API_Layer SHALL validate all request payloads using Pydantic models and return HTTP 422 with descriptive error messages for invalid inputs.
-6. THE API_Layer SHALL return all geospatial data (burn probability maps, route geometries, zone polygons) in GeoJSON-compatible format within the response schemas.
-7. IF a simulation job is still running, THEN THE API_Layer SHALL return HTTP 202 with a status field indicating progress when `GET /api/results/{job_id}` is called.
+1. THE API_Layer SHALL expose a `POST /api/simulate` endpoint that accepts a Pydantic_Schema request body containing ignition point (lat, lon), wind parameters (speed, direction, gust, humidity), number of Monte Carlo runs, and optional scenario preset name, and returns the full simulation results synchronously in the response body.
+2. THE API_Layer SHALL expose a `GET /api/wind` endpoint that accepts latitude and longitude query parameters and returns the current NWS wind conditions parsed into numeric values.
+3. THE API_Layer SHALL expose a `GET /api/scenarios` endpoint that returns the list of available scenario presets from scenario_presets.json.
+4. THE API_Layer SHALL validate all request payloads using Pydantic models and return HTTP 422 with descriptive error messages for invalid inputs.
+5. THE API_Layer SHALL return all geospatial data (burn probability maps, route geometries, zone polygons) in GeoJSON-compatible format within the response schemas.
+6. THE API_Layer SHALL include CORS middleware configured to allow cross-origin requests from the frontend.
 
 ### Requirement 7: CLI Execution Mode
+
+**Priority:** Critical (Phase 1 — MVP)
 
 **User Story:** As a developer, I want to run the full simulation pipeline from the command line without starting a web server, so that I can test and iterate on the computation independently.
 
 #### Acceptance Criteria
 
-1. THE system SHALL provide a CLI entry point via `python main.py` that accepts command-line arguments for ignition point (lat, lon), wind parameters, number of Monte Carlo runs, and optional scenario preset name.
-2. WHEN executed via CLI, THE system SHALL run the full pipeline: load seed data, fetch or accept wind data, execute Monte Carlo simulations, compute evacuation routes, and output aggregated results.
-3. THE system SHALL write CLI output results to a JSON file in a configurable output directory, containing the same data structure as the `GET /api/results/{job_id}` API response.
-4. IF the `--no-wind-fetch` flag is provided, THEN THE system SHALL skip the live NWS API call and use default or user-provided wind values.
+1. THE system SHALL provide a CLI entry point via `python main.py` that accepts command-line arguments for ignition point (lat, lon), wind speed, wind direction, humidity, and number of Monte Carlo runs.
+2. WHEN executed via CLI, THE system SHALL run the full pipeline: load seed data, execute Monte Carlo simulations with provided or default wind values, and output aggregated results.
+3. THE system SHALL write CLI output results to a JSON file in a configurable output directory.
+4. THE system SHALL print a summary to stdout including: total cells burned (mean), simulation duration, and number of runs completed.
 
 ### Requirement 8: Project Structure and Module Separation
+
+**Priority:** Critical (Phase 1 — MVP)
 
 **User Story:** As a team member, I want a clean module structure with strict separation of concerns, so that multiple developers can work in parallel without conflicts.
 
@@ -136,6 +186,8 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 
 ### Requirement 9: Demo Region Configuration
 
+**Priority:** High (Phase 2 — Routing)
+
 **User Story:** As a demo presenter, I want the system pre-configured for the Paradise, CA Camp Fire region, so that the demo runs immediately with realistic data.
 
 #### Acceptance Criteria
@@ -143,9 +195,11 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 1. THE system SHALL default to the Paradise, CA demo region with bounding box 39.65°N to 39.90°N latitude, -121.75°W to -121.40°W longitude.
 2. THE system SHALL use the Camp Fire perimeter from seed data as the default initial fire state at simulation time t=0.
 3. WHEN no ignition point is specified, THE system SHALL use the Camp Fire origin coordinates as the default ignition point.
-4. THE system SHALL include at least three scenario presets in seed data: Fast Wind Shift (wind direction change mid-simulation), Night Evacuation (reduced visibility and civilian delay), and School Zone (elevated population density near schools).
+4. THE system SHALL include at least three scenario presets in seed data: Fast Wind Shift, Night Evacuation, and School Zone.
 
 ### Requirement 10: Simulation Output Serialization
+
+**Priority:** Medium (Phase 4 — Polish)
 
 **User Story:** As a frontend developer, I want simulation outputs in a well-defined serializable format, so that I can render burn maps, routes, and metrics without additional processing.
 
@@ -156,3 +210,60 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 3. THE system SHALL serialize evacuation routes as ordered lists of (lat, lon) coordinate pairs with per-segment Route_Viability_Score and travel_time.
 4. THE system SHALL serialize zone results as GeoJSON features with properties including zone_id, population, Cutoff_Time, evacuation_priority_score, best_baseline_route_id, best_optimized_route_id, and failure_risk_percentage.
 5. FOR ALL valid Scenario configurations, serializing results to JSON then deserializing back SHALL produce an equivalent data structure (round-trip property).
+
+---
+
+## Agent Development Playbook
+
+Below is a phased todo list with prompts to run for each phase. Each phase ends with a validation step before proceeding.
+
+### Phase 1 — MVP: Fire Simulation Core
+
+**Goal:** A CLI-runnable system that simulates fire spread with Monte Carlo and outputs burn probability maps.
+
+| Step | Task | Agent Prompt |
+|------|------|-------------|
+| 1.1 | Scaffold project structure | "Create the /backend directory structure with modules: simulation/, monte_carlo/, data/, evacuation/, api/, models/. Add __init__.py files, requirements.txt with numpy, scipy, networkx, fastapi, uvicorn, pydantic, shapely, requests. Add main.py CLI entry point stub." |
+| 1.2 | Build seed data loaders | "Implement /backend/data/loader.py that loads all seed files (fuel_grid.npy, grid_bounds.json, camp_fire_perimeter.geojson, road_graph.json, zones.geojson, shelters.json, scenario_presets.json) with error handling for missing/malformed files. Create synthetic seed data files for development." |
+| 1.3 | Implement fire spread engine | "Implement /backend/simulation/fire_spread.py with the simplified Rothermel model: R0=0.05 km/min, wind_factor=exp(0.1783*wind_speed*cos(angle)), moisture_factor=1-(rh/100)*0.8. Grid is 100m cells, 1-min timesteps. Use NumPy vectorized operations. Track ignition times per cell." |
+| 1.4 | Implement Monte Carlo engine | "Implement /backend/monte_carlo/engine.py that runs N simulations sampling wind_speed~Normal(μ,3), wind_dir~Normal(μ,15), civ_delay~Uniform(2,15), road_closure~Beta(1.5,8.5). Aggregate into burn probability map and arrival time stats. Support deterministic seeding." |
+| 1.5 | Wire CLI entry point | "Wire /backend/main.py to accept CLI args (--lat, --lon, --wind-speed, --wind-dir, --humidity, --runs), load seed data, run Monte Carlo, and output results JSON + stdout summary." |
+
+**Validation:** `python backend/main.py --runs 10` completes without error and produces a results JSON with a burn probability map.
+
+### Phase 2 — Routing: Road Graph + Baseline Evacuation
+
+**Goal:** Shortest-path evacuation routing on the road network with per-zone results.
+
+| Step | Task | Agent Prompt |
+|------|------|-------------|
+| 2.1 | Build road graph loader | "Enhance /backend/data/loader.py to construct a NetworkX DiGraph from road_graph.json with travel_time and capacity edge attributes. Map highway classes to default speeds and capacities per the dataspec." |
+| 2.2 | Implement baseline routing | "Implement /backend/evacuation/router.py with baseline shortest-path routing using Dijkstra on travel_time to nearest shelter for each zone centroid. Output per-zone: route node list, total travel_time, shelter_id." |
+| 2.3 | Add demo region defaults | "Add Paradise, CA defaults (bbox, Camp Fire ignition point, scenario presets) to configuration. Ensure CLI runs with zero arguments using all defaults." |
+
+**Validation:** `python backend/main.py --runs 10` now includes per-zone baseline routes in the output JSON.
+
+### Phase 3 — API: FastAPI + Optimized Routing + Wind
+
+**Goal:** Synchronous REST API serving simulation results, live wind fetch, optimized routing.
+
+| Step | Task | Agent Prompt |
+|------|------|-------------|
+| 3.1 | Define Pydantic schemas | "Create /backend/models/schemas.py with Pydantic models for: SimulationRequest, SimulationResponse, WindResponse, ScenarioPreset. Include all fields from requirements." |
+| 3.2 | Implement FastAPI endpoints | "Implement /backend/api/routes.py with synchronous POST /api/simulate, GET /api/wind, GET /api/scenarios. Wire to simulation and data modules. Add CORS middleware." |
+| 3.3 | Implement NWS wind client | "Implement /backend/data/wind_client.py that fetches from api.weather.gov, parses wind strings to floats, converts compass to degrees. Include fallback values and manual override support." |
+| 3.4 | Implement optimized routing | "Extend /backend/evacuation/router.py with optimized cost function: cost = α*travel_time + β*congestion + γ*fire_exposure + δ*road_closure. Compute fire_exposure from simulation grid state at traversal time. Return both baseline and optimized routes." |
+
+**Validation:** `uvicorn backend.api.app:app` starts, `POST /api/simulate` returns full results with baseline and optimized routes.
+
+### Phase 4 — Polish: Full Scoring + Serialization + Demo
+
+**Goal:** Complete viability scoring, polished output format, demo-ready system.
+
+| Step | Task | Agent Prompt |
+|------|------|-------------|
+| 4.1 | Add viability scoring | "Extend /backend/evacuation/router.py with Route_Viability_Score (% MC runs route succeeds), Cutoff_Time per zone, evacuation ordering by priority_score, and failure risk percentage." |
+| 4.2 | Polish output serialization | "Ensure all outputs match Requirement 10: burn map as 2D float array with grid_bounds, arrival times with percentiles, routes as (lat,lon) pairs, zones as GeoJSON. Verify round-trip JSON serialization." |
+| 4.3 | End-to-end demo flow | "Test the full demo flow: default scenario → simulate → view results → change wind → re-simulate → compare. Ensure 3-minute demo is achievable. Add README with setup and demo instructions." |
+
+**Validation:** Full end-to-end run with `POST /api/simulate` returns complete results including viability scores, cutoff times, and evacuation ordering. CLI produces equivalent output.
