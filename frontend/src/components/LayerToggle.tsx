@@ -21,6 +21,10 @@ export interface LayerToggleProps {
   onSetTerrainExaggeration: (value: number) => void;
   /** Whether Mapbox token is available (elevation requires it) */
   hasMapboxToken: boolean;
+  /** Burn heatmap opacity (0.1–1.0) */
+  burnHeatmapOpacity: number;
+  /** Callback to set burn heatmap opacity */
+  onSetBurnHeatmapOpacity: (value: number) => void;
 }
 
 interface LayerOption {
@@ -44,6 +48,8 @@ export function LayerToggle({
   terrainExaggeration,
   onSetTerrainExaggeration,
   hasMapboxToken,
+  burnHeatmapOpacity,
+  onSetBurnHeatmapOpacity,
 }: LayerToggleProps): React.ReactElement {
   return (
     <div
@@ -101,6 +107,36 @@ export function LayerToggle({
         })}
       </div>
 
+      {/* Burn heatmap opacity slider */}
+      {visibleLayers.burnHeatmap && (
+        <div className="pt-2 border-t border-surface-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400">Heatmap Opacity</span>
+            <span className="text-xs font-mono text-gray-300">
+              {Math.round(burnHeatmapOpacity * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0.1}
+            max={1.0}
+            step={0.1}
+            value={burnHeatmapOpacity}
+            onChange={(e) => onSetBurnHeatmapOpacity(parseFloat(e.target.value))}
+            className={cn(
+              'w-full h-2 rounded-lg appearance-none cursor-pointer bg-surface-base',
+              '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4',
+              '[&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full',
+              '[&::-webkit-slider-thumb]:bg-fire-active [&::-webkit-slider-thumb]:cursor-pointer',
+              '[&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4',
+              '[&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-fire-active',
+              '[&::-moz-range-thumb]:border-0'
+            )}
+            aria-label="Burn heatmap opacity"
+          />
+        </div>
+      )}
+
       {/* Terrain exaggeration slider */}
       <div
         className={cn(
@@ -150,6 +186,20 @@ export function LayerToggle({
           <span>2×</span>
           <span>3×</span>
         </div>
+        {/* Flatten button for explicit 3D→flat toggle */}
+        {hasMapboxToken && terrainExaggeration > 1 && (
+          <button
+            type="button"
+            onClick={() => onSetTerrainExaggeration(1)}
+            className={cn(
+              'mt-2 w-full text-xs py-1 rounded border border-surface-border',
+              'text-gray-400 hover:text-gray-200 hover:bg-surface-hover transition-colors',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary'
+            )}
+          >
+            Flatten Terrain
+          </button>
+        )}
       </div>
 
       {/* No Mapbox token warning */}
