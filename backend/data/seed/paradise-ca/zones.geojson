@@ -1,0 +1,93 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z1",
+        "population": 4200,
+        "elderly_pct": 22.5,
+        "disability_pct": 8.3,
+        "evacuation_priority_weight": 1.8,
+        "centroid_lat": 39.76,
+        "centroid_lon": -121.62
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-121.64, 39.74],
+          [-121.60, 39.74],
+          [-121.60, 39.78],
+          [-121.64, 39.78],
+          [-121.64, 39.74]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z2",
+        "population": 3100,
+        "elderly_pct": 18.0,
+        "disability_pct": 6.1,
+        "evacuation_priority_weight": 1.4,
+        "centroid_lat": 39.80,
+        "centroid_lon": -121.55
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-121.58, 39.78],
+          [-121.52, 39.78],
+          [-121.52, 39.82],
+          [-121.58, 39.82],
+          [-121.58, 39.78]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z3",
+        "population": 2800,
+        "elderly_pct": 30.2,
+        "disability_pct": 12.0,
+        "evacuation_priority_weight": 2.1,
+        "centroid_lat": 39.85,
+        "centroid_lon": -121.48
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-121.51, 39.83],
+          [-121.45, 39.83],
+          [-121.45, 39.87],
+          [-121.51, 39.87],
+          [-121.51, 39.83]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "Z4",
+        "population": 1500,
+        "elderly_pct": 15.0,
+        "disability_pct": 5.0,
+        "evacuation_priority_weight": 1.0,
+        "centroid_lat": 39.72,
+        "centroid_lon": -121.70
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-121.73, 39.70],
+          [-121.67, 39.70],
+          [-121.67, 39.74],
+          [-121.73, 39.74],
+          [-121.73, 39.70]
+        ]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+[
+  {"shelter_id": "S1", "name": "Paradise Alliance Church", "lat": 39.7596, "lon": -121.6219, "capacity": 500, "accessible": true},
+  {"shelter_id": "S2", "name": "Chico Fairgrounds", "lat": 39.7285, "lon": -121.8375, "capacity": 1000, "accessible": true},
+  {"shelter_id": "S3", "name": "Oroville Armory", "lat": 39.5138, "lon": -121.5555, "capacity": 300, "accessible": false}
+]
