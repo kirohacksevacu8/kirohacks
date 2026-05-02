@@ -1,0 +1,14 @@
+{
+  "region_name": "Paradise, CA",
+  "bounding_box": {
+    "min_lat": 39.65,
+    "max_lat": 39.90,
+    "min_lon": -121.75,
+    "max_lon": -121.40
+  },
+  "default_ignition_point": {
+    "lat": 39.8103,
+    "lon": -121.4377
+  },
+  "fire_perimeter_file": "camp_fire_perimeter.geojson"
+}

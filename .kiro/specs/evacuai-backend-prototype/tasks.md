@@ -30,7 +30,7 @@ Phase 3: Convergence (sequential, needs all lanes)
 
 ### Phase 1 — Scaffolding (All Team Members)
 
-- [ ] 1. Scaffold project structure and dependencies
+- [x] 1. Scaffold project structure and dependencies
   - Create `/backend` directory with modules: `simulation/`, `monte_carlo/`, `evacuation/`, `data/`, `api/`, `models/`
   - Add `__init__.py` files for all packages
   - Create `requirements.txt` with pinned dependencies: numpy, scipy, networkx, fastapi, uvicorn, pydantic, shapely, requests, pytest, hypothesis, pytest-cov, httpx
@@ -38,8 +38,8 @@ Phase 3: Convergence (sequential, needs all lanes)
   - Create `backend/tests/` directory with `__init__.py` and `conftest.py`
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 2. Implement Pydantic data models and schemas
-  - [ ] 2.1 Create all Pydantic models in `backend/models/schemas.py`
+- [x] 2. Implement Pydantic data models and schemas
+  - [x] 2.1 Create all Pydantic models in `backend/models/schemas.py`
     - Implement region config models: `BoundingBox`, `DefaultIgnitionPoint`, `RegionConfig`
     - Implement `GridBounds`, `WindConditions`, `Zone`, `Shelter`, `ScenarioPreset`, `CostWeights`
     - Implement `SimulationRequest` with worldwide lat/lon validation (lat: -90.0 to 90.0, lon: -180.0 to 180.0) and optional `seed_dir` field
@@ -63,7 +63,7 @@ Phase 3: Convergence (sequential, needs all lanes)
     - Use Hypothesis `builds` strategy to generate valid `SimulationResponse` objects, serialize to JSON, deserialize back, and verify equivalence
     - **Validates: Requirements 10.5**
 
-- [ ] 3. Checkpoint — Schemas ready for parallel work
+- [x] 3. Checkpoint — Schemas ready for parallel work
   - Ensure all tests pass, ask the user if questions arise.
   - Verify all Pydantic models import cleanly and validate correctly.
 
@@ -79,8 +79,8 @@ Phase 3: Convergence (sequential, needs all lanes)
 > **Files: `backend/simulation/fire_spread.py`, tests**
 > **No shared files with Lanes B, C, D**
 
-- [ ] 4. Implement fire spread simulation engine
-  - [ ] 4.1 Create `backend/simulation/fire_spread.py` with `FireSpreadEngine` class
+- [x] 4. Implement fire spread simulation engine
+  - [x] 4.1 Create `backend/simulation/fire_spread.py` with `FireSpreadEngine` class
     - Implement `__init__` accepting `fuel_grid` (float32 NumPy array) and `grid_bounds` (GridBounds)
     - Implement lat/lon to grid coordinate conversion using grid_bounds metadata
     - Implement `run()` method with parameters: `ignition_point` (lat, lon), `wind_speed_mph`, `wind_direction_deg`, `relative_humidity`, `max_timesteps`
@@ -121,8 +121,8 @@ Phase 3: Convergence (sequential, needs all lanes)
 > **Files: `backend/data/loader.py`, `backend/data/seed/paradise-ca/*`, tests**
 > **No shared files with Lanes A, C, D**
 
-- [ ] 5. Create synthetic seed data files and region config
-  - [ ] 5.1 Create Paradise, CA Region Dataset at `backend/data/seed/paradise-ca/`
+- [x] 5. Create synthetic seed data files and region config
+  - [x] 5.1 Create Paradise, CA Region Dataset at `backend/data/seed/paradise-ca/`
     - Create `region_config.json` with `region_name: "Paradise, CA"`, `bounding_box` (39.65–39.90°N, -121.75–-121.40°W), `default_ignition_point` (Camp Fire origin), `fire_perimeter_file: "camp_fire_perimeter.geojson"`
     - Generate a small synthetic `fuel_grid.npy` (e.g., 50×50 grid with mixed fuel values 0.0–1.5)
     - Create `grid_bounds.json` with Paradise bounding box and cell resolution metadata
@@ -133,7 +133,7 @@ Phase 3: Convergence (sequential, needs all lanes)
     - Create `scenario_presets.json` with 3 presets: Fast Wind Shift, Night Evacuation, School Zone — each with region-specific ignition points and wind parameters
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 11.1, 11.2, 11.3_
 
-  - [ ] 5.2 Implement `backend/data/loader.py` with `SeedDataLoader` class
+  - [x] 5.2 Implement `backend/data/loader.py` with `SeedDataLoader` class
     - Implement `__init__` accepting configurable `seed_dir` parameter, defaulting to `backend/data/seed/paradise-ca/`
     - Implement `load_region_config()` — load and validate `region_config.json` against `RegionConfig` Pydantic model
     - Implement `validate_required_files()` — check all REQUIRED_FILES exist, raise `SeedDataError` listing ALL missing files
@@ -168,8 +168,8 @@ Phase 3: Convergence (sequential, needs all lanes)
 > **Files: `backend/evacuation/router.py`, tests**
 > **No shared files with Lanes A, B, D**
 
-- [ ] 6. Implement baseline evacuation routing
-  - [ ] 6.1 Create `backend/evacuation/router.py` with `EvacuationRouter` class
+- [x] 6. Implement baseline evacuation routing
+  - [x] 6.1 Create `backend/evacuation/router.py` with `EvacuationRouter` class
     - Implement `__init__` accepting `road_graph` (NetworkX DiGraph), `zones` (list[Zone]), `shelters` (list[Shelter])
     - Implement `compute_baseline_routes()` — Dijkstra shortest-path by `travel_time` weight to nearest shelter per zone centroid
     - Return per-zone `BaselineRouteResult` with ordered node ID list, path coordinates, total travel_time, and shelter_id
@@ -194,8 +194,8 @@ Phase 3: Convergence (sequential, needs all lanes)
 > **Files: `backend/data/wind_client.py`, tests**
 > **No shared files with Lanes A, B, C**
 
-- [ ] 7. Implement NWS wind client
-  - [ ] 7.1 Create `backend/data/wind_client.py` with `NWSWindClient` class
+- [x] 7. Implement NWS wind client
+  - [x] 7.1 Create `backend/data/wind_client.py` with `NWSWindClient` class
     - Implement grid coordinate resolution: `GET https://api.weather.gov/points/{lat},{lon}` → extract gridId, gridX, gridY
     - Implement hourly forecast fetch: `GET https://api.weather.gov/gridpoints/{gridId}/{gridX},{gridY}/forecast/hourly` → parse first period
     - Parse wind speed/gust strings (e.g., "14 mph") to float values
@@ -218,7 +218,7 @@ Phase 3: Convergence (sequential, needs all lanes)
     - Test non-US coordinates trigger fallback
     - _Requirements: 4.4, 4.5, 4.6, 4.7_
 
-- [ ] 8. Checkpoint — All parallel lanes complete
+- [x] 8. Checkpoint — All parallel lanes complete
   - Ensure all tests pass across all four lanes, ask the user if questions arise.
   - Verify: fire spread engine runs on a small grid, seed data loads from paradise-ca, baseline routes compute on road graph, wind client returns fallback on mock failure.
 
