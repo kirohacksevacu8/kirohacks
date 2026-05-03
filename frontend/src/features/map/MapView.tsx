@@ -17,7 +17,7 @@ import { LayerToggle } from '@/components/LayerToggle';
 import { useIgnitionMarkerLayer } from './IgnitionMarker';
 import { useElevationLayer } from './ElevationLayer';
 import { usePerimeterOutlineLayer } from './PerimeterOutline';
-import { useShelterMarkersLayers } from './ShelterMarkers';
+import { useShelterMarkers } from './ShelterMarkers';
 import { useBurnHeatmapLayer } from './BurnHeatmapLayer';
 import { useRouteOverlayLayer } from './RouteOverlayLayer';
 import { useZoneChoroplethLayer, ZoneTooltip } from './ZoneChoroplethLayer';
@@ -100,7 +100,8 @@ export function MapView({ onOpenLeftPanel, onOpenRightPanel }: MapViewProps): Re
 
   const ignitionLayer = useIgnitionMarkerLayer({ ignitionPoint });
   const perimeterLayer = usePerimeterOutlineLayer({ visible: visibleLayers.perimeter });
-  const shelterLayers = useShelterMarkersLayers({ visible: visibleLayers.shelters });
+  const shelterState = useShelterMarkers({ visible: visibleLayers.shelters });
+  const shelterLayers = shelterState.layers;
 
   const burnHeatmapLayer = useBurnHeatmapLayer({
     burnProbability: currentResults?.burn_probability ?? null,
@@ -197,6 +198,18 @@ export function MapView({ onOpenLeftPanel, onOpenRightPanel }: MapViewProps): Re
 
       {/* Animation Timeline — shown when results available */}
       {hasResults && <AnimationTimeline />}
+
+      {/* Data warnings */}
+      {shelterState.error && (
+        <div className={cn('absolute top-4 right-4 z-10 max-w-xs', 'bg-accent-error/10 border border-accent-error/30', 'rounded-lg px-3 py-2', 'text-xs text-accent-error')} role="alert">
+          ⚠ {shelterState.error}
+        </div>
+      )}
+      {hasResults && currentResults!.routes.length === 0 && (
+        <div className={cn('absolute top-4 right-4 z-10 max-w-xs', shelterState.error ? 'top-16' : 'top-4', 'bg-accent-error/10 border border-accent-error/30', 'rounded-lg px-3 py-2', 'text-xs text-accent-error')} role="alert">
+          ⚠ No evacuation routes computed. Road network may be missing or disconnected.
+        </div>
+      )}
 
       {/* Mobile toggle buttons */}
       <button

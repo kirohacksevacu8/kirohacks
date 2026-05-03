@@ -51,11 +51,6 @@ def _deduplicate(shelters: list[dict]) -> list[dict]:
     return kept
 
 
-def _synthetic(shelter_id: str, lat: float, lon: float) -> dict:
-    return {"shelter_id": shelter_id, "name": f"Shelter at {lat:.4f}, {lon:.4f}",
-            "lat": lat, "lon": lon, "capacity": 500, "accessible": True}
-
-
 def fetch_shelters(
     bbox: tuple[float, float, float, float],
     output_path: Path,
@@ -64,33 +59,24 @@ def fetch_shelters(
     min_lon, min_lat, max_lon, max_lat = bbox
     client = overpass_client or OverpassClient()
 
-    try:
-        data = client.query(_QUERY.format(min_lat=min_lat, min_lon=min_lon,
-                                          max_lat=max_lat, max_lon=max_lon))
-        shelters = []
-        for el in data.get("elements", []):
-            tags = el.get("tags", {})
-            lat, lon = el["lat"], el["lon"]
-            shelters.append({
-                "shelter_id": f"osm_{el['id']}",
-                "name": tags.get("name") or f"Shelter at {lat:.4f}, {lon:.4f}",
-                "lat": lat,
-                "lon": lon,
-                "capacity": _capacity(tags),
-                "accessible": True,
-            })
-        shelters = _deduplicate(shelters)
-    except IngestError as e:
-        log.warning("Overpass failed, using fallback: %s", e)
-        shelters = []
+    data = client.query(_QUERY.format(min_lat=min_lat, min_lon=min_lon,
+                                      max_lat=max_lat, max_lon=max_lon))
+    shelters = []
+    for el in data.get("elements", []):
+        tags = el.get("tags", {})
+        lat, lon = el["lat"], el["lon"]
+        shelters.append({
+            "shelter_id": f"osm_{el['id']}",
+            "name": tags.get("name") or f"Shelter at {lat:.4f}, {lon:.4f}",
+            "lat": lat,
+            "lon": lon,
+            "capacity": _capacity(tags),
+            "accessible": True,
+        })
+    shelters = _deduplicate(shelters)
 
-    if len(shelters) < 2:
-        existing_ids = {s["shelter_id"] for s in shelters}
-        for sid, lat, lon in [("synthetic_sw", min_lat, min_lon), ("synthetic_ne", max_lat, max_lon)]:
-            if sid not in existing_ids:
-                shelters.append(_synthetic(sid, lat, lon))
-            if len(shelters) >= 2:
-                break
+    if len(shelters) == 0:
+        raise IngestError("No shelter locations found for this region. Cannot plan evacuations.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(shelters, indent=2))

@@ -79,6 +79,10 @@ function ResultsPanelContent(): React.ReactElement {
 
   const { routes, zones, evacuation_ordering } = currentResults;
 
+  const drawableRoutes = routes.filter((r) => r.segments.length >= 2);
+  const hasNoRoutes = routes.length === 0;
+  const hasNoDrawableRoutes = drawableRoutes.length === 0 && routes.length > 0;
+
   const bestRoute = routes
     .filter((r) => r.strategy === 'optimized')
     .sort((a, b) => b.viability_score - a.viability_score)[0];
@@ -98,6 +102,17 @@ function ResultsPanelContent(): React.ReactElement {
       )}
 
       <SummaryStatistics results={currentResults} />
+
+      {hasNoRoutes && (
+        <div className="bg-accent-error/10 border border-accent-error/30 rounded-lg p-3 text-xs text-accent-error" role="alert">
+          No evacuation routes were computed. The road network may be missing or disconnected from shelter locations.
+        </div>
+      )}
+      {hasNoDrawableRoutes && (
+        <div className="bg-accent-warning/10 border border-accent-warning/30 rounded-lg p-3 text-xs text-accent-warning" role="alert">
+          Routes exist but are too short to display on the map (zones are at shelter locations).
+        </div>
+      )}
 
       {/* Baseline vs Optimized comparison */}
       <ComparisonView results={currentResults} />

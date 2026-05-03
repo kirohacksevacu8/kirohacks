@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
 import numpy as np
 import pytest
 
@@ -67,36 +66,22 @@ def test_fuel_grid_fallback(tmp_path):
     assert grid.min() >= 0.0 and grid.max() <= 1.5
 
 
-def test_road_network_fallback(tmp_path):
+def test_road_network_raises_on_failure(tmp_path):
     out = tmp_path / "road_graph.json"
     mock_client = MagicMock()
     mock_client.query.side_effect = IngestError("overpass down")
 
-    fetch_road_network(BBOX, out, overpass_client=mock_client)
-
-    assert out.exists()
-    G = nx.node_link_graph(json.loads(out.read_text()))
-    assert isinstance(G, nx.DiGraph)
-    edge_data = list(G.edges(data=True))
-    assert len(edge_data) > 0
-    for _, _, attrs in edge_data:
-        assert "travel_time" in attrs
-        assert "capacity" in attrs
+    with pytest.raises(IngestError):
+        fetch_road_network(BBOX, out, overpass_client=mock_client)
 
 
-def test_shelters_fallback(tmp_path):
+def test_shelters_raises_on_failure(tmp_path):
     out = tmp_path / "shelters.json"
     mock_client = MagicMock()
     mock_client.query.side_effect = IngestError("overpass down")
 
-    fetch_shelters(BBOX, out, overpass_client=mock_client)
-
-    assert out.exists()
-    shelters = json.loads(out.read_text())
-    assert len(shelters) >= 2
-    for s in shelters:
-        for key in ("shelter_id", "name", "lat", "lon", "capacity", "accessible"):
-            assert key in s
+    with pytest.raises(IngestError):
+        fetch_shelters(BBOX, out, overpass_client=mock_client)
 
 
 def test_zones_fallback(tmp_path):
@@ -141,7 +126,8 @@ def test_perimeters_no_features(tmp_path):
     assert result is False
 
 
-def test_generate_seed_data_with_fallbacks(tmp_path):
+def test_generate_seed_data_fails_without_overpass(tmp_path):
+    """When Overpass is down, roads/shelters raise IngestError and the pipeline fails."""
     mock_nominatim = _mock_nominatim()
     mock_empty = MagicMock()
     mock_empty.raise_for_status = MagicMock()
@@ -159,12 +145,5 @@ def test_generate_seed_data_with_fallbacks(tmp_path):
         patch("backend.data.ingest.fuel._RASTERIO", False),
         patch("backend.data.ingest.overpass.OverpassClient.query", side_effect=IngestError("down")),
     ):
-        result = generate_seed_data(*PARADISE, radius_km=5, cell_size_m=500)
-
-    assert isinstance(result, Path)
-    required = {"region_config.json", "grid_bounds.json", "fuel_grid.npy",
-                "road_graph.json", "zones.geojson", "shelters.json", "scenario_presets.json"}
-    for fname in required:
-        assert (result / fname).exists(), f"Missing {fname}"
-
-    SeedDataLoader(str(result)).load_all()
+        with pytest.raises(IngestError):
+            generate_seed_data(*PARADISE, radius_km=5, cell_size_m=500)

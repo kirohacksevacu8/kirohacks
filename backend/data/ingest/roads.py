@@ -42,28 +42,6 @@ def _build_graph(data: dict) -> nx.DiGraph:
     return G
 
 
-def _fallback_grid(bbox: tuple[float, float, float, float]) -> nx.DiGraph:
-    min_lon, min_lat, max_lon, max_lat = bbox
-    G = nx.DiGraph()
-    n = 10
-    for i in range(n):
-        for j in range(n):
-            nid = i * n + j
-            lat = min_lat + (max_lat - min_lat) * i / (n - 1)
-            lon = min_lon + (max_lon - min_lon) * j / (n - 1)
-            G.add_node(nid, lat=lat, lon=lon)
-    for i in range(n):
-        for j in range(n):
-            nid = i * n + j
-            for di, dj in ((0, 1), (1, 0)):
-                ni, nj = i + di, j + dj
-                if ni < n and nj < n:
-                    nbr = ni * n + nj
-                    G.add_edge(nid, nbr, travel_time=2.0, capacity=500)
-                    G.add_edge(nbr, nid, travel_time=2.0, capacity=500)
-    return G
-
-
 def fetch_road_network(
     bbox: tuple[float, float, float, float],
     output_path: Path,
@@ -78,12 +56,12 @@ def fetch_road_network(
         f");\nout body;\n>;\nout skel qt;"
     )
     client = overpass_client or OverpassClient()
-    try:
-        data = client.query(query)
-        G = _build_graph(data)
-    except Exception as exc:
-        log.warning("Overpass failed (%s); using fallback grid.", exc)
-        G = _fallback_grid(bbox)
+    data = client.query(query)
+    G = _build_graph(data)
+
+    if G.number_of_nodes() == 0:
+        raise IngestError("No road data found for this region. Cannot compute evacuation routes.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(nx.node_link_data(G)))
+    log.info("Wrote road graph (%d nodes, %d edges) to %s", G.number_of_nodes(), G.number_of_edges(), output_path)
