@@ -14,7 +14,7 @@ type Speed = typeof SPEEDS[number];
 
 const MAX_TIMESTEP = 70;
 
-// Zone cutoff markers from mock data
+// Zone cutoff markers from simulation data
 const ZONE_CUTOFFS = [
   { zone_id: 'BG-21', cutoff_time: 5 },
   { zone_id: 'BG-12', cutoff_time: 8 },

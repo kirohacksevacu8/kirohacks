@@ -81,6 +81,7 @@ export function RunButton({ hasWindErrors = false, onValidationAttempt }: RunBut
           wind_gust: windParams.gust,
           relative_humidity: windParams.humidity,
           num_runs: monteCarloRuns,
+          region: state.selectedRegion ?? undefined,
         },
         (progressUpdate) => {
           updateProgress(progressUpdate.completed_runs, progressUpdate.total_runs);

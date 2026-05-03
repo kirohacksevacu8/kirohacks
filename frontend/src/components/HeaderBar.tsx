@@ -2,20 +2,18 @@
  * HeaderBar Component
  *
  * Top navigation bar containing logo, scenario label, simulation status,
- * wind rose, mode badges, and demo step indicator.
+ * wind rose, and mode badges.
  */
 
 import { cn } from '@/lib/cn';
 import { useSimulation } from '@/hooks/useSimulation';
 import { SimulationStatus } from './SimulationStatus';
 import { WindRose } from './WindRose';
-import { DemoStepIndicator } from '@/features/controls/DemoStepIndicator';
 
 export function HeaderBar(): React.ReactElement {
-  const { state, isMockMode } = useSimulation();
-  const { selectedScenario, demoMode, demoStep, windParams } = state;
+  const { state } = useSimulation();
+  const { selectedScenario, windParams } = state;
 
-  // "Modified Wind" badge: shown when wind source is 'manual' (user edited after NWS fetch)
   const isWindModified = windParams.source === 'manual';
 
   return (
@@ -38,31 +36,14 @@ export function HeaderBar(): React.ReactElement {
         </div>
       )}
 
-      {/* Demo step indicator */}
-      {demoMode && (
-        <div className="hidden md:flex">
-          <DemoStepIndicator currentStep={demoStep} />
-        </div>
-      )}
-
       <div className="flex-1" />
 
       <SimulationStatus />
 
       <div className="flex items-center gap-2">
-        {isMockMode && (
-          <span className="bg-accent-warning/20 text-accent-warning text-[10px] font-medium px-2 py-0.5 rounded-full">
-            MOCK DATA
-          </span>
-        )}
         {isWindModified && (
           <span className="bg-accent-warning/20 text-accent-warning text-[10px] font-medium px-2 py-0.5 rounded-full">
             Modified Wind
-          </span>
-        )}
-        {demoMode && (
-          <span className="bg-accent-primary/20 text-accent-primary text-[10px] font-medium px-2 py-0.5 rounded-full">
-            DEMO {demoStep}
           </span>
         )}
       </div>

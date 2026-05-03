@@ -15,6 +15,7 @@ from backend.models.schemas import (
     RouteResult,
     ZoneResult,
     ScenarioPreset,
+    Shelter,
 )
 from backend.monte_carlo.engine import MonteCarloEngine
 from backend.simulation.fire_spread import FireSpreadEngine
@@ -181,5 +182,17 @@ def list_scenarios(region: str = DEFAULT_REGION):
     try:
         loader = SeedDataLoader(seed_dir=seed_dir)
         return loader.load_scenario_presets()
+    except SeedDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/shelters", response_model=list[Shelter])
+def list_shelters(region: str = DEFAULT_REGION):
+    """List evacuation shelters for a region."""
+    seed_dir = _region_to_seed_dir(region)
+    try:
+        loader = SeedDataLoader(seed_dir=seed_dir)
+        data = loader.load_all()
+        return data.shelters
     except SeedDataError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -12,6 +12,7 @@ import type {
   SimulationResults,
   WindData,
   ScenarioPreset,
+  ShelterData,
   ApiValidationError,
   ApiNetworkError,
   FieldError,
@@ -373,6 +374,7 @@ export class LiveApiClient implements EvacuAIApi {
       relative_humidity: request.relative_humidity,
       num_runs: request.num_runs,
       scenario_preset: request.scenario_preset,
+      region: request.region,
     };
 
     const raw = await this.fetch<BackendSimulationResponse>('/api/simulate', {
@@ -407,5 +409,14 @@ export class LiveApiClient implements EvacuAIApi {
   async getScenarios(): Promise<ScenarioPreset[]> {
     const raw = await this.fetch<BackendScenarioPreset[]>('/api/scenarios');
     return raw.map(mapScenarioPreset);
+  }
+
+  async getRegions(): Promise<string[]> {
+    return this.fetch<string[]>('/api/regions');
+  }
+
+  async getShelters(region?: string): Promise<ShelterData[]> {
+    const params = region ? `?region=${encodeURIComponent(region)}` : '';
+    return this.fetch<ShelterData[]>(`/api/shelters${params}`);
   }
 }

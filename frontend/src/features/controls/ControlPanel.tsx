@@ -19,6 +19,7 @@ import { WindSection } from './WindSection';
 import { ScenarioSelector } from './ScenarioSelector';
 import { MonteCarloSlider } from './MonteCarloSlider';
 import { RunButton } from './RunButton';
+import { RegionSelector } from './RegionSelector';
 
 export interface ControlPanelProps {
   /** Whether the mobile drawer is open */
@@ -109,6 +110,9 @@ function ControlPanelContent(): React.ReactElement {
       <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
         Simulation Controls
       </h2>
+
+      {/* Region selection */}
+      <RegionSelector />
 
       {/* Ignition point selection — shows error when run attempted without point */}
       <IgnitionSection showRequiredError={showIgnitionError} />

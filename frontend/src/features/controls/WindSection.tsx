@@ -49,14 +49,6 @@ const WIND_INPUTS: WindInputConfig[] = [
 ];
 
 /**
- * Default coordinates for Paradise, CA (Camp Fire demo region)
- */
-const DEFAULT_COORDINATES = {
-  lat: 39.7596,
-  lon: -121.6219,
-};
-
-/**
  * Validation error messages keyed by field
  */
 export type WindValidationErrors = Partial<
@@ -209,15 +201,20 @@ export function WindSection({
    * Calls api.getWind() and populates fields with response
    */
   const handleFetchWind = useCallback(async () => {
+    if (!ignitionPoint) {
+      showToast({
+        message: 'Set an ignition point on the map first to fetch live wind.',
+        variant: 'warning',
+      });
+      return;
+    }
+
     setIsFetching(true);
 
     try {
       const api = await getApi();
 
-      // Use ignition point if set, otherwise use default Paradise coordinates
-      const coordinates = ignitionPoint ?? DEFAULT_COORDINATES;
-
-      const windData = await api.getWind(coordinates.lat, coordinates.lon);
+      const windData = await api.getWind(ignitionPoint.lat, ignitionPoint.lon);
 
       // Update wind parameters from API response
       setWindFromData(windData);

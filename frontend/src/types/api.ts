@@ -31,6 +31,8 @@ export interface SimulateRequest {
   num_runs: number;
   /** Optional scenario preset name */
   scenario_preset?: string;
+  /** Region slug (e.g. 'paradise-ca'). Defaults to 'paradise-ca' on backend. */
+  region?: string;
 }
 
 // ============================================================================
@@ -301,6 +303,22 @@ export interface ScenarioPreset {
   wind_gust: number;
   /** Default relative humidity percentage */
   relative_humidity: number;
+}
+
+// ============================================================================
+// Shelter Data
+// ============================================================================
+
+/**
+ * Shelter data from the API
+ */
+export interface ShelterData {
+  shelter_id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  capacity: number;
+  accessible: boolean;
 }
 
 // ============================================================================

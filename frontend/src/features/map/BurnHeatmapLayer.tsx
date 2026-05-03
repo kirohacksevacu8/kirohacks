@@ -5,12 +5,11 @@
  * Supports opacity control and animation timestep filtering via arrival_times.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { BitmapLayer } from '@deck.gl/layers';
 import type { BurnProbabilityMap, ArrivalTimeStats } from '@/types/api';
 
 // Fire color ramp: transparent → fire-low → fire-medium → fire-high → fire-extreme
-// Each entry: [r, g, b, a] at probability 0.0, 0.25, 0.5, 0.75, 1.0
 const COLOR_RAMP: [number, number, number, number][] = [
   [0, 0, 0, 0],         // 0.0 — transparent
   [252, 211, 77, 120],  // 0.25 — fire-low
@@ -37,11 +36,16 @@ function interpolateColor(
   ];
 }
 
-function buildTexture(
+/**
+ * Build an ImageBitmap texture from the burn probability grid.
+ * Grid row 0 = northernmost (max_lat), but BitmapLayer bounds [left,bottom,right,top]
+ * maps pixel row 0 to the top of the image, so no flip is needed.
+ */
+async function buildTexture(
   grid: number[][],
   arrivalTimes: number[][] | null,
   animationTimestep: number
-): ImageData {
+): Promise<ImageBitmap> {
   const rows = grid.length;
   const cols = grid[0]?.length ?? 0;
   const data = new Uint8ClampedArray(cols * rows * 4);
@@ -50,29 +54,27 @@ function buildTexture(
     for (let c = 0; c < cols; c++) {
       const prob = grid[r][c];
       const arrival = arrivalTimes ? arrivalTimes[r][c] : 0;
-      // If animating, only show cells that have been reached
       const show = arrivalTimes === null || arrival <= animationTimestep;
       const idx = (r * cols + c) * 4;
       if (show && prob > 0) {
-        // When animating, color by recency: bright orange → dark red
         let t = prob;
         if (arrivalTimes && arrival <= animationTimestep && animationTimestep > 0) {
           const age = animationTimestep - arrival;
-          // Newer cells brighter (lower t), older cells darker (higher t)
           t = Math.min(1, 0.3 + age / 30);
         }
-        const [r2, g, b, a] = interpolateColor(t);
-        data[idx] = r2;
-        data[idx + 1] = g;
-        data[idx + 2] = b;
-        data[idx + 3] = a;
+        const [cr, cg, cb, ca] = interpolateColor(t);
+        data[idx] = cr;
+        data[idx + 1] = cg;
+        data[idx + 2] = cb;
+        data[idx + 3] = ca;
       } else {
         data[idx + 3] = 0;
       }
     }
   }
 
-  return new ImageData(data, cols, rows);
+  const imageData = new ImageData(data, cols, rows);
+  return createImageBitmap(imageData);
 }
 
 export interface BurnHeatmapLayerProps {
@@ -90,25 +92,38 @@ export function useBurnHeatmapLayer({
   opacity,
   visible,
 }: BurnHeatmapLayerProps) {
-  return useMemo(() => {
-    if (!burnProbability || !visible) return null;
+  const [imageBitmap, setImageBitmap] = useState<ImageBitmap | null>(null);
 
-    const { grid, grid_bounds } = burnProbability;
+  // Build the texture asynchronously whenever inputs change
+  useEffect(() => {
+    if (!burnProbability || !visible) {
+      setImageBitmap(null);
+      return;
+    }
+
+    const { grid } = burnProbability;
     const isAnimating = animationTimestep > 0;
     const meanGrid = arrivalTimes?.mean ?? null;
 
-    const imageData = buildTexture(grid, isAnimating ? meanGrid : null, animationTimestep);
+    let cancelled = false;
+    buildTexture(grid, isAnimating ? meanGrid : null, animationTimestep).then((bmp) => {
+      if (!cancelled) setImageBitmap(bmp);
+    });
 
-    const { min_lon, max_lon, min_lat, max_lat } = grid_bounds;
+    return () => { cancelled = true; };
+  }, [burnProbability, arrivalTimes, animationTimestep, visible]);
+
+  return useMemo(() => {
+    if (!burnProbability || !visible || !imageBitmap) return null;
+
+    const { min_lon, max_lon, min_lat, max_lat } = burnProbability.grid_bounds;
 
     return new BitmapLayer({
       id: 'burn-heatmap',
-      image: imageData,
+      image: imageBitmap,
       bounds: [min_lon, min_lat, max_lon, max_lat],
       opacity,
       pickable: false,
-      // Flip vertically: grid row 0 = top (max_lat), but BitmapLayer expects bottom-left origin
-      // We handle this by building the texture with row 0 at top and using bounds correctly
     });
-  }, [burnProbability, arrivalTimes, animationTimestep, opacity, visible]);
+  }, [burnProbability, visible, imageBitmap, opacity]);
 }

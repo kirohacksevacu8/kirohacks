@@ -5,7 +5,7 @@
  * Integrates Mapbox GL JS for basemap and terrain, with Deck.gl for data overlays.
  */
 
-import { useRef, useCallback, useMemo, useState } from 'react';
+import { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map, type MapRef } from 'react-map-gl/mapbox';
 import type { PickingInfo } from '@deck.gl/core';
@@ -31,9 +31,9 @@ export interface MapViewProps {
 }
 
 const INITIAL_VIEW_STATE = {
-  latitude: 39.7596,
-  longitude: -121.6219,
-  zoom: 12,
+  latitude: 20,
+  longitude: 0,
+  zoom: 2,
   pitch: 0,
   bearing: 0,
 };
@@ -61,6 +61,17 @@ export function MapView({ onOpenLeftPanel, onOpenRightPanel }: MapViewProps): Re
   const { ignitionPoint, visibleLayers, terrainExaggeration, currentResults, animationTimestep, selectedZoneId } = state;
 
   const [burnHeatmapOpacity, setBurnHeatmapOpacity] = useState(0.8);
+
+  // Fly to region bounds when results arrive
+  useEffect(() => {
+    const bounds = currentResults?.burn_probability?.grid_bounds;
+    if (!bounds || !mapRef.current) return;
+    const { min_lat, max_lat, min_lon, max_lon } = bounds;
+    mapRef.current.fitBounds(
+      [[min_lon, min_lat], [max_lon, max_lat]],
+      { padding: 40, duration: 1000 }
+    );
+  }, [currentResults]);
 
   const handleMapClick = useCallback(
     (info: PickingInfo) => {
