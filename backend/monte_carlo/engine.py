@@ -77,11 +77,6 @@ class MonteCarloEngine:
             wd = float(rng.normal(wind_direction_deg, 15.0) % 360.0)
             civ_delay = float(rng.uniform(2.0, 15.0))
 
-            # Sample road closures: Beta(1.5, 8.5) per edge
-            road_closures: dict[tuple[int, int], float] = {}
-            for u, v in self.road_graph.edges():
-                road_closures[(u, v)] = float(rng.beta(1.5, 8.5))
-
             result: FireSpreadResult = self.fire_engine.run(
                 ignition_point=ignition_point,
                 wind_speed_mph=ws,

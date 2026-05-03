@@ -55,7 +55,7 @@ function StrategyColumn({
 }: {
   label: string;
   score: number;
-  time: number;
+  time: number | null;
   risk: number;
   emphasized?: boolean;
 }) {
@@ -69,7 +69,7 @@ function StrategyColumn({
         </div>
         <div>
           <dt>Avg evacuation time</dt>
-          <dd>{time.toFixed(0)} min</dd>
+          <dd>{time == null ? "n/a" : `${time.toFixed(0)} min`}</dd>
         </div>
         <div>
           <dt>Avg failure risk</dt>
@@ -84,8 +84,8 @@ function aggregate(result: SimulationResponse) {
   const zones = result.zone_results;
   const baselineScore = average(zones.map((zone) => zone.baseline_route.viability_score ?? 0));
   const optimizedScore = average(zones.map((zone) => zone.optimized_route?.viability_score ?? 0));
-  const baselineTime = average(zones.map((zone) => zone.baseline_route.total_travel_time_min));
-  const optimizedTime = average(zones.map((zone) => zone.optimized_route?.total_travel_time_min ?? 0));
+  const baselineTime = averageAvailable(zones.map((zone) => zone.baseline_route.total_travel_time_min));
+  const optimizedTime = averageAvailable(zones.map((zone) => zone.optimized_route?.total_travel_time_min));
   const failureRisk = average(zones.map((zone) => zone.failure_risk_pct ?? 0));
 
   return {
@@ -100,4 +100,9 @@ function aggregate(result: SimulationResponse) {
 
 function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
+function averageAvailable(values: Array<number | null | undefined>) {
+  const finiteValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return finiteValues.length > 0 ? average(finiteValues) : null;
 }

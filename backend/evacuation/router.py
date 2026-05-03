@@ -151,10 +151,25 @@ class EvacuationRouter:
         if weights is None:
             weights = CostWeights()
 
+        if not self.shelters:
+            return {
+                zone.zone_id: OptimizedRouteResult(
+                    zone_id=zone.zone_id,
+                    shelter_id="none",
+                    node_ids=[],
+                    path_coords=[],
+                    total_travel_time=float("inf"),
+                    total_cost=float("inf"),
+                )
+                for zone in self.zones
+            }
+
         edge_congestion: dict[tuple[int, int], float] = {}
+        reversed_graph = self.G.reverse(copy=False)
+        shelter_nodes = list(self._shelter_node_to_id)
 
         zones_ordered = self.zones
-        if zone_priority_order:
+        if zone_priority_order is not None:
             zone_map = {z.zone_id: z for z in self.zones}
             zones_ordered = [zone_map[zid] for zid in zone_priority_order if zid in zone_map]
 
@@ -174,39 +189,44 @@ class EvacuationRouter:
                 )
                 continue
 
-            for shelter in self.shelters:
-                tgt = self._shelter_nodes[shelter.shelter_id]
+            def edge_cost(u, v, data):
+                tt = data.get("travel_time", 1.0)
+                cap = max(1, data.get("capacity", 400))
+                cong = edge_congestion.get((u, v), 0.0) / cap
+                fe = self._fire_exposure(u, v, fire_grid, ignition_times, civ_delay)
+                rc = road_closures.get((u, v), 0.0)
+                return (weights.alpha * tt + weights.beta * cong
+                        + weights.gamma * fe + weights.delta * rc)
 
-                def edge_cost(u, v, data):
-                    tt = data.get("travel_time", 1.0)
-                    cap = max(1, data.get("capacity", 400))
-                    cong = edge_congestion.get((u, v), 0.0) / cap
-                    fe = self._fire_exposure(u, v, fire_grid, ignition_times, civ_delay)
-                    rc = road_closures.get((u, v), 0.0)
-                    return (weights.alpha * tt + weights.beta * cong
-                            + weights.gamma * fe + weights.delta * rc)
+            def reversed_edge_cost(v, u, data):
+                return edge_cost(u, v, data)
 
-                try:
-                    path = nx.dijkstra_path(self.G, src, tgt, weight=edge_cost)
-                    tt = sum(
-                        self.G[path[i]][path[i + 1]]["travel_time"]
-                        for i in range(len(path) - 1)
-                    )
-                    cost = sum(
-                        edge_cost(path[i], path[i + 1], self.G[path[i]][path[i + 1]])
-                        for i in range(len(path) - 1)
-                    )
-                    if best is None or cost < best.total_cost:
-                        best = OptimizedRouteResult(
-                            zone_id=zone.zone_id,
-                            shelter_id=shelter.shelter_id,
-                            node_ids=path,
-                            path_coords=_path_coords(self.G, path),
-                            total_travel_time=tt,
-                            total_cost=cost,
-                        )
-                except nx.NetworkXNoPath:
-                    pass
+            try:
+                cost, reversed_path = nx.multi_source_dijkstra(
+                    reversed_graph,
+                    shelter_nodes,
+                    target=src,
+                    weight=reversed_edge_cost,
+                )
+            except nx.NetworkXNoPath:
+                reversed_path = []
+                cost = float("inf")
+
+            if reversed_path:
+                shelter_node = reversed_path[0]
+                path = list(reversed(reversed_path))
+                tt = sum(
+                    self.G[path[i]][path[i + 1]]["travel_time"]
+                    for i in range(len(path) - 1)
+                )
+                best = OptimizedRouteResult(
+                    zone_id=zone.zone_id,
+                    shelter_id=self._shelter_node_to_id.get(shelter_node, "none"),
+                    node_ids=path,
+                    path_coords=_path_coords(self.G, path),
+                    total_travel_time=tt,
+                    total_cost=float(cost),
+                )
 
             if best is None:
                 best = OptimizedRouteResult(

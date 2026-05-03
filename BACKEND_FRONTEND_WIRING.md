@@ -1,12 +1,12 @@
 # Backend to Frontend Wiring Guide
 
-This repo is already close to being wireable:
+This repo is now wireable:
 
 - The frontend has a live API client in `frontend/src/services/liveApiClient.ts`.
 - The frontend types already mirror the backend schemas in `frontend/src/types/api.ts` and `backend/models/schemas.py`.
-- The backend already has the simulation engine, seed-data loader, and wind client.
+- The backend has the simulation engine, seed-data loader, wind client, and FastAPI routes.
 
-The main missing piece is the HTTP API layer.
+The remaining deployment task is to host the backend and point Vercel at its public URL.
 
 ## Current Contract the Frontend Already Expects
 
@@ -21,7 +21,7 @@ Those calls come from `frontend/src/services/liveApiClient.ts`.
 
 ## Step 1: Keep One Shared Request/Response Contract
 
-Before adding HTTP routes, keep the backend and frontend aligned on the same payload shapes:
+Keep the backend and frontend aligned on the same payload shapes:
 
 - Backend request model: `backend/models/schemas.py -> SimulationRequest`
 - Backend response model: `backend/models/schemas.py -> SimulationResponse`
@@ -34,24 +34,20 @@ What to check:
 - Number ranges should match on both sides.
 - Optional fields should mean the same thing on both sides.
 
-Repo-specific mismatch to fix:
+Repo-specific validation:
 
 - The frontend currently validates `num_runs` as `50-1000` in `frontend/src/hooks/useSimulation.ts`.
-- The backend schema currently allows `1-2000` in `backend/models/schemas.py`.
+- The backend schema also validates `num_runs` as `50-1000` in `backend/models/schemas.py`.
 
-Pick one rule and make both sides match before wiring the live flow.
+Keep those rules aligned if you change the simulation range.
 
-## Step 2: Extract the Simulation Logic Into a Reusable Backend Service
+## Step 2: Shared Simulation Service
 
-Right now the core run path lives inside `backend/main.py` in `_run_simulation(args)`.
-
-Before wiring FastAPI, move that logic into a shared function so both the CLI and API can use it.
-
-Suggested new file:
+The core run path lives in a shared service used by both the CLI and API:
 
 - `backend/api/services/simulation_service.py`
 
-Suggested function shape:
+Function shape:
 
 ```python
 from backend.models.schemas import SimulationRequest, SimulationResponse
@@ -74,30 +70,21 @@ Why this matters:
 - The API route does not duplicate business logic.
 - Future tests only need to validate one simulation path.
 
-## Step 3: Create the FastAPI App
+## Step 3: FastAPI App
 
-There is no actual FastAPI app file in `backend/api` yet, even though `fastapi` and `uvicorn` are already in `backend/requirements.txt`.
-
-Create a new entrypoint such as:
+The FastAPI app entrypoint is:
 
 - `backend/api/app.py`
 
-Suggested structure:
+Current CORS behavior:
 
-```python
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+- Local dev origins are allowed by default.
+- Vercel preview/production domains are allowed by default through `CORS_ALLOW_ORIGIN_REGEX`.
+- Set `CORS_ALLOW_ORIGINS=https://your-frontend.vercel.app` to lock production down to one frontend.
 
-app = FastAPI(title="EvacuAI API")
+Performance knob:
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-```
+- `MAX_OPTIMIZED_ROUTE_ZONES` defaults to `25` so deployed simulations optimize the highest-priority routes first while still returning baseline routes for every zone.
 
 Why CORS is required:
 
@@ -105,11 +92,9 @@ Why CORS is required:
 - The backend will likely run on `http://localhost:8000`
 - Without CORS, browser requests from the frontend will fail
 
-## Step 4: Add `GET /api/scenarios`
+## Step 4: `GET /api/scenarios`
 
 The frontend loads scenarios on app startup in `frontend/src/App.tsx`.
-
-Implement:
 
 - `GET /api/scenarios?region=paradise-ca`
 
@@ -126,11 +111,9 @@ Suggested behavior:
 - Return `404` if the region folder does not exist
 - Return `500` only for real server failures
 
-## Step 5: Add `GET /api/wind`
+## Step 5: `GET /api/wind`
 
 The frontend uses this when the user asks for live wind in `frontend/src/hooks/useSimulation.ts`.
-
-Implement:
 
 - `GET /api/wind?lat=<lat>&lon=<lon>`
 
@@ -157,11 +140,9 @@ Important repo detail:
 - `backend/data/wind_client.py` already falls back to default wind values if NWS fails.
 - That means this endpoint can stay resilient even before adding caching or retries.
 
-## Step 6: Add `POST /api/simulate`
+## Step 6: `POST /api/simulate`
 
 The frontend sends a `SimulationRequest` from `frontend/src/hooks/useSimulation.ts`.
-
-Implement:
 
 - `POST /api/simulate`
 
@@ -181,19 +162,7 @@ Request body should match:
 }
 ```
 
-You have two valid implementation options.
-
-### Option A: Start Synchronous First
-
-Return `200 OK` with the full `SimulationResponse`.
-
-Why this is a good first step:
-
-- The frontend already supports immediate `200` responses.
-- It is the fastest path to get real data on the screen.
-- You can prove the contract before adding job polling.
-
-### Option B: Add Async Jobs for Progress Polling
+The backend uses async jobs for progress polling.
 
 Return `202 Accepted` with a job payload:
 
@@ -207,7 +176,7 @@ Return `202 Accepted` with a job payload:
 
 This matches the polling flow already implemented in `frontend/src/services/liveApiClient.ts`.
 
-If you choose async, the route should:
+The route:
 
 1. Create a job id
 2. Store job state in memory
@@ -215,11 +184,9 @@ If you choose async, the route should:
 4. Update `runs_completed` as work progresses
 5. Save the final `SimulationResponse`
 
-## Step 7: Add `GET /api/results/{job_id}` If You Use Async Jobs
+## Step 7: `GET /api/results/{job_id}`
 
 The frontend polls this endpoint every second when `POST /api/simulate` returns `202`.
-
-Implement:
 
 - `GET /api/results/{job_id}`
 
@@ -251,7 +218,7 @@ Important frontend behavior:
 
 - `frontend/src/services/liveApiClient.ts` already handles `404`
 - It also handles `500` with one retry
-- It times out polling after 60 seconds
+- It times out polling after 5 minutes
 
 ## Step 8: Keep Region Resolution Simple
 
@@ -313,6 +280,34 @@ Expected frontend URL:
 
 - `http://localhost:5173`
 
+## Step 10b: Deploy the Backend
+
+The repo includes Railway config:
+
+- `railway.json`
+- root `requirements.txt` pointing at `backend/requirements.txt`
+- `/health` for deployment health checks
+
+Railway start command:
+
+```bash
+uvicorn backend.api.app:app --host 0.0.0.0 --port $PORT
+```
+
+After deployment, test:
+
+```bash
+curl https://your-backend-url.railway.app/health
+curl "https://your-backend-url.railway.app/api/scenarios?region=paradise-ca"
+```
+
+Then set these Vercel env vars:
+
+```env
+VITE_API_MODE=live
+VITE_API_BASE_URL=https://your-backend-url.railway.app
+```
+
 ## Step 11: Verify the Wiring End to End
 
 Run this checklist in order:
@@ -325,11 +320,11 @@ Run this checklist in order:
 6. If using async jobs, confirm polling hits `GET /api/results/{job_id}`
 7. Confirm invalid request values return `422` and show field errors in the UI
 
-## Step 12: Add a Small Backend Test Layer
+## Step 12: Backend Test Layer
 
-Once the routes exist, add API tests for the contract the frontend depends on.
+The backend has API tests for the contract the frontend depends on.
 
-Suggested test coverage:
+Current test coverage:
 
 1. `GET /api/scenarios` returns a non-empty array for `paradise-ca`
 2. `GET /api/wind` returns `conditions` plus `source`
@@ -337,29 +332,21 @@ Suggested test coverage:
 4. Invalid request payloads return `422`
 5. `GET /api/results/{job_id}` returns `404` for unknown jobs
 
-Use `fastapi.testclient.TestClient` for this.
+These use `fastapi.testclient.TestClient`.
 
 ## Repo-Specific Notes
 
-- `backend/api/__init__.py` exists, but there is no API server file yet.
+- `backend/api/app.py` exposes the API server and frontend contract routes.
 - `backend/data/loader.py` is already the right place to load scenarios and seed data.
 - `backend/data/wind_client.py` is already the right place to source live wind.
 - `frontend/src/services/api.ts` switches between mock and live mode based on `VITE_API_MODE`.
 - `frontend/src/services/liveApiClient.ts` already supports both synchronous `200` responses and async `202` polling.
 - `frontend/src/features/map/MapView.tsx` expects route coordinates from the backend in `[lat, lon]` order and converts them to `[lon, lat]` for rendering, so keep that backend format consistent.
 
-## Recommended Implementation Order
+## Recommended Deployment Order
 
-If you want the shortest path to a working demo, build it in this order:
-
-1. Extract shared simulation logic from `backend/main.py`
-2. Create `backend/api/app.py`
-3. Add CORS
-4. Add `GET /api/scenarios`
-5. Add `GET /api/wind`
-6. Add synchronous `POST /api/simulate`
-7. Switch `frontend/.env` to `VITE_API_MODE=live`
-8. Verify the full flow
-9. Only then add async job polling if you still need progress updates
-
-That sequence gets real backend data into the UI with the least risk.
+1. Deploy the backend service.
+2. Verify `/health` and `/api/scenarios`.
+3. Set `VITE_API_MODE=live` and `VITE_API_BASE_URL` in Vercel.
+4. Redeploy the frontend.
+5. Run one live simulation and confirm polling hits `/api/results/{job_id}`.

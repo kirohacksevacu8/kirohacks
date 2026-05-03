@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import os
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -25,6 +27,7 @@ from backend.monte_carlo.engine import MonteCarloEngine
 from backend.simulation.fire_spread import FireSpreadEngine
 
 DEFAULT_REGION = "paradise-ca"
+DEFAULT_OPTIMIZED_ROUTE_LIMIT = 25
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SEED_ROOT = REPO_ROOT / "backend" / "data" / "seed"
 ProgressCallback = Callable[[int, int, str], None]
@@ -115,6 +118,7 @@ def run_simulation(
     )
     ordering = router.compute_evacuation_ordering(data.zones, fire_exposure_probs)
     ordered_zone_ids = [item.zone_id for item in ordering]
+    optimized_zone_ids = ordered_zone_ids[:_optimized_route_limit()]
 
     aggregated_ignition_times = np.nan_to_num(
         result.arrival_time_mean,
@@ -128,7 +132,7 @@ def run_simulation(
         ignition_times=aggregated_ignition_times,
         road_closures={},
         civ_delay=average_civ_delay,
-        zone_priority_order=ordered_zone_ids,
+        zone_priority_order=optimized_zone_ids,
     )
 
     if progress_callback is not None:
@@ -238,7 +242,7 @@ def _build_zone_result(
         shelter_id=baseline_route_result.shelter_id,
         path_coords=baseline_route_result.path_coords,
         node_ids=baseline_route_result.node_ids,
-        total_travel_time_min=float(baseline_route_result.total_travel_time),
+        total_travel_time_min=_finite_float_or_none(baseline_route_result.total_travel_time),
         viability_score=baseline_viability_result.viability_score,
         strategy="baseline",
     )
@@ -255,7 +259,7 @@ def _build_zone_result(
             shelter_id=optimized_route_result.shelter_id,
             path_coords=optimized_route_result.path_coords,
             node_ids=optimized_route_result.node_ids,
-            total_travel_time_min=float(optimized_route_result.total_travel_time),
+            total_travel_time_min=_finite_float_or_none(optimized_route_result.total_travel_time),
             viability_score=(
                 optimized_viability_result.viability_score
                 if optimized_viability_result is not None
@@ -291,8 +295,25 @@ def _priority_score(zone, zones, fire_exposure_probs: dict[str, float]) -> float
     ) * fire_exposure
 
 
+def _optimized_route_limit() -> int:
+    configured = os.getenv("MAX_OPTIMIZED_ROUTE_ZONES")
+    if configured is None:
+        return DEFAULT_OPTIMIZED_ROUTE_LIMIT
+    try:
+        return max(0, int(configured))
+    except ValueError:
+        return DEFAULT_OPTIMIZED_ROUTE_LIMIT
+
+
+def _finite_float_or_none(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
 def _nan_to_none(arr: np.ndarray) -> list[list[Optional[float]]]:
-    return [[None if np.isnan(value) else float(value) for value in row] for row in arr]
+    return [[None if not np.isfinite(value) else float(value) for value in row] for row in arr]
 
 
 def _zone_fire_exposure(zones, burn_probability_map, grid_bounds) -> dict[str, float]:

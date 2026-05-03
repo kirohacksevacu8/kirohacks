@@ -120,7 +120,7 @@ class RouteResult(BaseModel):
     shelter_id: str
     path_coords: list[tuple[float, float]]
     node_ids: list[int]
-    total_travel_time_min: float
+    total_travel_time_min: Optional[float] = None
     viability_score: Optional[float] = None
     strategy: str  # "baseline" or "optimized"
 

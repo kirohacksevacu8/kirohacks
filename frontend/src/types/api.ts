@@ -107,7 +107,7 @@ export interface RouteResult {
   shelter_id: string;
   path_coords: LatLonTuple[];
   node_ids: number[];
-  total_travel_time_min: number;
+  total_travel_time_min: number | null;
   viability_score?: number | null;
   strategy: "baseline" | "optimized" | string;
 }

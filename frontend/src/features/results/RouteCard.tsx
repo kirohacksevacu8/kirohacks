@@ -22,7 +22,10 @@ function RouteLine({ label, route }: { label: string; route: RouteResult }) {
   const selectRoute = useSimulationStore((s) => s.selectRoute);
   const score = route.viability_score ?? 0;
   const tone = score > 80 ? "high" : score >= 50 ? "med" : "low";
-  const travelTime = route.node_ids.length > 0 ? `${route.total_travel_time_min.toFixed(0)} min` : "n/a";
+  const travelTime =
+    route.node_ids.length > 0 && route.total_travel_time_min != null
+      ? `${route.total_travel_time_min.toFixed(0)} min`
+      : "n/a";
 
   return (
     <div className="route-line">

@@ -5,12 +5,39 @@ import time
 
 from fastapi.testclient import TestClient
 
-from backend.api.app import app
+from backend.api.app import _cors_origin_regex, app
 from backend.api.jobs import job_store
 from backend.data.wind_client import WindFetchResult
 from backend.models.schemas import SimulationRequest, WindConditions
 
 client = TestClient(app)
+
+
+def test_health_check_returns_ok():
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_cors_allows_vercel_preview_origins():
+    response = client.options(
+        "/api/scenarios",
+        headers={
+            "Origin": "https://evacuai-demo.vercel.app",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://evacuai-demo.vercel.app"
+
+
+def test_cors_regex_is_disabled_when_origins_are_explicit(monkeypatch):
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "https://frontend.example")
+    monkeypatch.delenv("CORS_ALLOW_ORIGIN_REGEX", raising=False)
+
+    assert _cors_origin_regex() is None
 
 
 def test_get_scenarios_returns_default_region_data():
@@ -91,6 +118,32 @@ def test_simulate_returns_accepted_then_complete(monkeypatch):
     payload = final.json()
     assert payload["status"] == "complete"
     assert payload["result"]["summary"]["runs_completed"] == 50
+
+
+def test_results_serializes_unreachable_route_time_as_null():
+    from backend.tests.test_simulation_service import build_test_response
+
+    job_store.clear()
+    request = SimulationRequest(
+        ignition_lat=39.7596,
+        ignition_lon=-121.6219,
+        wind_speed_mph=14.0,
+        wind_direction_deg=225.0,
+        wind_gust_mph=20.0,
+        relative_humidity=18.0,
+        num_runs=50,
+        max_timesteps=30,
+    )
+    result = build_test_response(request)
+    result.zone_results[0].baseline_route.total_travel_time_min = float("inf")
+    job = job_store.create(total_runs=request.num_runs)
+    job_store.complete(job.job_id, result)
+
+    response = client.get(f"/api/results/{job.job_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["zone_results"][0]["baseline_route"]["total_travel_time_min"] is None
 
 
 def test_results_404_for_unknown_job():

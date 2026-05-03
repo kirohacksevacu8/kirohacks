@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import threading
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import Response
+from pydantic import BaseModel
 
 from backend.api.jobs import job_store
 from backend.api.services.simulation_service import fetch_wind, list_scenarios, run_simulation
@@ -17,18 +19,44 @@ from backend.models.schemas import (
     WindResponse,
 )
 
+
+def _cors_origins() -> list[str]:
+    configured = os.getenv("CORS_ALLOW_ORIGINS")
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+
+def _cors_origin_regex() -> str | None:
+    configured = os.getenv("CORS_ALLOW_ORIGIN_REGEX")
+    if configured is not None:
+        return configured or None
+
+    if os.getenv("CORS_ALLOW_ORIGINS"):
+        return None
+
+    return r"https://.*\.vercel\.app"
+
+
 app = FastAPI(title="EvacuAI API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_credentials=True,
+    allow_origins=_cors_origins(),
+    allow_origin_regex=_cors_origin_regex(),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.get("/api/scenarios")
@@ -108,14 +136,22 @@ def get_results(job_id: str):
             total_runs=job.total_runs,
             eta_seconds=round(job.eta_seconds, 1),
         )
-        return JSONResponse(status_code=202, content=progress.model_dump())
+        return _model_json_response(status_code=202, model=progress)
 
     complete = SimulationResultEnvelope(
         job_id=job.job_id,
         status="complete",
         result=job.result,
     )
-    return JSONResponse(status_code=200, content=complete.model_dump())
+    return _model_json_response(status_code=200, model=complete)
+
+
+def _model_json_response(*, status_code: int, model: BaseModel) -> Response:
+    return Response(
+        status_code=status_code,
+        content=model.model_dump_json(),
+        media_type="application/json",
+    )
 
 
 def run_simulation_request_precheck(request: SimulationRequest) -> None:
