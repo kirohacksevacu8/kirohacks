@@ -2,7 +2,7 @@
 
 ## Overview
 
-EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty and evaluates evacuation route viability. The architecture is region-agnostic: any geographic region that provides a conformant Region Dataset can be loaded and simulated. Paradise, CA (Camp Fire 2018) ships as the bundled default demo region.
+EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty and evaluates evacuation route viability. The architecture is region-agnostic: any geographic region that provides a conformant Region Dataset can be loaded and simulated. Paradise, CA (Camp Fire 2018) ships as the bundled default demo region. All data sources — fuel grids, road networks, population zones, shelter locations, and fire perimeters — are derived from real public datasets (LANDFIRE, OpenStreetMap, US Census, NIFC); no synthetic or fabricated seed data is used.
 
 The backend is structured as a pipeline with four stages:
 
@@ -11,7 +11,7 @@ The backend is structured as a pipeline with four stages:
 3. **Monte Carlo Aggregation** — Execute ~500 stochastic simulation runs, sampling wind, delay, and road closure parameters from defined distributions, then aggregate into burn probability maps and arrival time statistics.
 4. **Evacuation Optimization** — Compute baseline (Dijkstra shortest-path) and optimized (multi-factor cost function) evacuation routes per zone on a NetworkX road graph, scoring route viability across Monte Carlo runs.
 
-The system exposes two interfaces: a CLI entry point (`python main.py`) for standalone execution and a synchronous FastAPI REST API for frontend integration. Both share the same Pydantic schema definitions and pipeline logic. Both accept a configurable `seed_dir` parameter to specify which Region Dataset to load.
+The system exposes two interfaces: a CLI entry point (`python backend/main.py`) for standalone execution and a synchronous FastAPI REST API for frontend integration. Both share the same Pydantic schema definitions and pipeline logic. Both accept a configurable `seed_dir` parameter to specify which Region Dataset to load.
 
 ### Key Design Decisions
 
@@ -20,7 +20,7 @@ The system exposes two interfaces: a CLI entry point (`python main.py`) for stan
 | Synchronous API (no async/celery) | Hackathon scope — simplicity over scalability. ~500 runs on a small grid complete in seconds. |
 | NumPy vectorized grid operations | Performance-critical inner loop. Vectorized spread computation avoids Python-level cell iteration. |
 | Region-agnostic architecture with configurable seed_dir | Any region providing a conformant dataset can be simulated. Paradise ships as the default. |
-| Pre-bundled seed data with single live API call (NWS wind) | Demo reliability — only wind data is fetched live. Everything else is local. |
+| Pre-bundled seed data with single live API call (NWS wind) | Demo reliability — all data derived from real public sources (LANDFIRE, OSM, Census, NIFC). Only wind data is fetched live at simulation time. No synthetic data. |
 | Pydantic for all data contracts | Strict validation at API boundaries and CLI output. Shared between API and CLI. |
 | NetworkX DiGraph for road network | Standard graph library with built-in Dijkstra. Sufficient for regional road networks. |
 | SciPy for stochastic sampling | Provides Normal, Uniform, Beta distributions with seed-based reproducibility. |
@@ -35,8 +35,8 @@ The system exposes two interfaces: a CLI entry point (`python main.py`) for stan
 ```mermaid
 graph TB
     subgraph "Entry Points"
-        CLI["CLI (main.py)<br/>--seed-dir arg"]
-        API["FastAPI (api/app.py)<br/>optional seed_dir param"]
+        CLI["CLI (main.py)<br/>--seed-dir arg<br/>ingest subcommand"]
+        API["FastAPI (api/app.py)<br/>optional seed_dir param<br/>POST /api/ingest"]
     end
 
     subgraph "Core Pipeline"
@@ -72,6 +72,7 @@ graph TB
     DL --> SIM
     SIM --> MC
     MC --> EVAC
+    note right of EVAC: "Called twice:<br/>1. Per-run inside MC loop (optimized routing)<br/>2. Post-aggregate (viability scoring)"
     EVAC --> SCHEMA
     SCHEMA --> CLI
     SCHEMA --> API
@@ -140,7 +141,7 @@ sequenceDiagram
 
 ```
 /backend
-├── main.py                          # CLI entry point (--seed-dir arg)
+├── main.py                          # CLI entry point (--seed-dir arg, ingest subcommand)
 ├── requirements.txt                 # Python dependencies
 ├── __init__.py
 ├── simulation/
@@ -156,15 +157,26 @@ sequenceDiagram
 │   ├── __init__.py
 │   ├── loader.py                    # Region Dataset loading & validation
 │   ├── wind_client.py               # NWS API client
-│   └── seed/                        # Pre-bundled Region Datasets
-│       └── paradise-ca/             # Default bundled region
+│   ├── ingest/                      # Real data ingestion pipeline
+│   │   ├── __init__.py
+│   │   ├── fuel.py                  # LANDFIRE FBFM40 fuel grid fetcher
+│   │   ├── roads.py                 # OSM road network fetcher
+│   │   ├── zones.py                 # Census zones + demographics fetcher
+│   │   ├── shelters.py              # OSM shelter locations fetcher
+│   │   ├── perimeters.py            # NIFC fire perimeters fetcher
+│   │   ├── region.py                # Region config + grid bounds generator
+│   │   ├── scenarios.py             # Scenario presets generator
+│   │   ├── orchestrator.py          # Ties all fetchers together
+│   │   └── overpass.py              # Shared Overpass rate limiter
+│   └── seed/                        # Region Datasets (real data, not synthetic)
+│       └── paradise-ca/             # Default bundled region (real data)
 │           ├── region_config.json   # Region metadata & config
-│           ├── fuel_grid.npy
+│           ├── fuel_grid.npy        # From LANDFIRE FBFM40
 │           ├── grid_bounds.json
-│           ├── camp_fire_perimeter.geojson
-│           ├── road_graph.json
-│           ├── zones.geojson
-│           ├── shelters.json
+│           ├── camp_fire_perimeter.geojson  # From NIFC WFIGS
+│           ├── road_graph.json      # From OpenStreetMap
+│           ├── zones.geojson        # From US Census + TIGER
+│           ├── shelters.json        # From OpenStreetMap
 │           └── scenario_presets.json
 ├── api/
 │   ├── __init__.py
@@ -210,9 +222,11 @@ class FireSpreadEngine:
 Key implementation details:
 - Grid is a 2D NumPy float32 array. Each cell is 100m × 100m.
 - Spread uses 8-neighbor connectivity (Moore neighborhood).
-- Per-timestep: for each burning cell, compute spread probability to each unburned neighbor using `spread_rate = R0 * fuel_multiplier * wind_factor * moisture_factor`.
+- Per-timestep: for each burning cell, compute spread rate to each unburned neighbor using `spread_rate = R0 * fuel_multiplier * wind_factor * moisture_factor`.
 - `wind_factor = exp(0.1783 * wind_speed_mph * cos(angle_between_wind_and_neighbor))` — cosine weighting favors downwind spread.
 - `moisture_factor = 1 - (relative_humidity / 100) * 0.8` — higher humidity dampens spread.
+- **Spread rate to ignition probability conversion**: The Rothermel formula produces a spread *rate* in km/min, not a probability. To convert to a per-timestep ignition probability: `ignition_probability = min(1.0, spread_rate * timestep_duration_min)` where `timestep_duration_min = 1.0`. This bounds the probability at 1.0 and ensures correct behavior at high wind speeds where the raw spread rate can exceed 1.0.
+- **Wind direction convention**: Wind direction is provided in meteorological convention (degrees *from* which the wind blows, 0° = wind from North, blowing South). Before computing neighbor angles, convert to a vector direction (degrees *toward* which the wind blows) by adding 180°: `downwind_direction = (wind_direction_deg + 180) % 360`. The angle used in the cosine term is `neighbor_bearing - downwind_direction`, where `neighbor_bearing` is the compass bearing from the burning cell to the neighbor (0° = North, 90° = East, etc.). This ensures `cos(0) = 1.0` for the downwind neighbor (maximum spread) and `cos(180°) = -1.0` for the upwind neighbor (minimum spread).
 - Cells with `fuel_multiplier == 0.0` (non-burnable, FBFM40 codes 91–99) are never ignited.
 - Ignition times are recorded as the timestep when each cell first catches fire. Unburned cells get -1.
 - Vectorized implementation: use `scipy.ndimage` or manual NumPy slicing to compute neighbor spread probabilities in bulk rather than iterating cells.
@@ -259,11 +273,12 @@ class MonteCarloEngine:
 
 Key implementation details:
 - Each run creates a fresh `numpy.random.Generator` from a `SeedSequence` derived from the master seed, ensuring deterministic reproducibility.
-- Wind speed is sampled then clamped: `max(0, min(sampled, wind_gust_mph))`.
+- Wind speed is sampled then clamped: `max(0, min(sampled, wind_gust_mph))`. The `wind_gust_mph` parameter serves exclusively as an upper bound on sampled wind speed and does not appear in the Rothermel spread rate formula.
 - Wind direction wraps at 360°.
-- Road closure probabilities are sampled once per run and applied to all edges.
+- Road closure probabilities are sampled once per run as a `dict[tuple[int, int], float]` keyed by `(source, target)` node ID pair, matching the NetworkX DiGraph edge access pattern. Each value is drawn from `Beta(1.5, 8.5)` and represents the closure probability for that edge in this run.
 - Aggregation: `burn_probability_map[i,j] = count_ignited[i,j] / num_runs`.
 - Arrival time stats: mean, median computed only over runs where the cell ignited.
+- All humidity values are percentages in range 0–100 (not decimal fractions). The moisture factor formula `1 - (relative_humidity / 100) * 0.8` assumes this convention.
 
 #### 3. `evacuation.router` — Evacuation Route Optimizer
 
@@ -285,14 +300,34 @@ class EvacuationRouter:
         self,
         fire_grid: np.ndarray,
         ignition_times: np.ndarray,
-        road_closures: np.ndarray,
+        road_closures: dict[tuple[int, int], float],
         civ_delay: float,
         weights: CostWeights | None = None,
     ) -> dict[str, OptimizedRouteResult]:
         """
-        Multi-factor cost routing per zone.
+        Multi-factor cost routing per zone using per-run Fire_Grid state
+        (not the aggregated Burn_Probability_Map). Runs once per MC run.
+        
+        Uses single-pass greedy assignment: zones are routed in descending
+        priority_score order. After each zone is assigned, congestion on all
+        edges in that route is updated before the next zone routes.
+        Already-assigned zones are not re-routed.
+        
+        Args:
+            fire_grid: Per-run burn mask (bool array).
+            ignition_times: Per-cell ignition timestep for this run.
+            road_closures: Per-edge closure probability for this run, keyed by
+                (source_node_id, target_node_id) tuple matching the NetworkX
+                DiGraph edge access pattern. Sampled from Beta(1.5, 8.5) by
+                the Monte Carlo engine.
+            civ_delay: Civilian evacuation delay in minutes for this run.
+            weights: Optional cost function weight overrides.
+        
         cost = α*travel_time + β*congestion + γ*fire_exposure + δ*road_closure
         Default weights: α=1.0, β=0.5, γ=2.0, δ=1.5
+        
+        congestion = evacuating_population_on_edge / edge_capacity
+        fire_exposure = fraction of grid cells along edge burning at traversal time [0.0, 1.0]
         """
 
     def compute_viability_scores(
@@ -312,8 +347,11 @@ class EvacuationRouter:
         fire_exposure_probs: dict[str, float],
     ) -> list[ZoneOrderResult]:
         """
-        Sort zones by priority_score = (pop_weight + elderly_weight*2.0
-        + disability_weight*1.5) * fire_exposure_probability.
+        Sort zones by priority_score = (pop_weight + (elderly_pct/100)*2.0
+        + (disability_pct/100)*1.5) * fire_exposure_probability.
+        
+        fire_exposure_probability is the mean Burn_Probability_Map value
+        across all grid cells within the zone polygon.
         """
 ```
 
@@ -424,6 +462,7 @@ def simulate(request: SimulationRequest) -> SimulationResponse:
     """
     Run full simulation pipeline.
     Accepts optional seed_dir in request body to specify Region Dataset.
+    seed_dir must be a relative path; absolute paths are rejected with 400.
     Defaults to bundled Paradise, CA dataset.
     """
 
@@ -438,17 +477,36 @@ def get_scenarios(seed_dir: str | None = None) -> list[ScenarioPreset]:
     Return scenario presets from the specified Region Dataset.
     Defaults to bundled Paradise, CA dataset if seed_dir is not provided.
     """
+
+# POST /api/ingest
+@router.post("/api/ingest", response_model=IngestResponse, status_code=202)
+def ingest(request: IngestRequest) -> IngestResponse:
+    """
+    Trigger data ingestion pipeline to generate a new Region Dataset.
+    Accepts lat, lon, radius_km. Returns region_slug and status.
+    May run asynchronously via BackgroundTasks.
+    """
+
+# GET /api/ingest/{region_slug}/status
+@router.get("/api/ingest/{region_slug}/status", response_model=IngestStatusResponse)
+def ingest_status(region_slug: str) -> IngestStatusResponse:
+    """
+    Poll ingestion progress. Returns status, progress_pct,
+    completed_files, and warnings.
+    """
 ```
+
+**Ingestion State Persistence**: Ingestion state is tracked in a module-level `dict[str, IngestStatusResponse]` initialized at startup in `api/routes.py`. When `POST /api/ingest` is called, it creates an initial entry with `status="generating"` and `progress_pct=0`, then launches a `BackgroundTask`. The background task writes progress updates to this dict as each ingest module completes (fuel grid, road network, zones, shelters, etc.). The `GET /api/ingest/{region_slug}/status` endpoint reads from this dict. This is a single-process, in-memory solution — state is lost on server restart. This is acceptable for the hackathon/prototype scope.
 
 #### 7. `main.py` — CLI Entry Point
 
 ```python
-# python main.py --lat 39.7596 --lon -121.6219 --wind-speed 14 \
-#                --wind-dir 225 --humidity 18 --runs 500 \
+# python backend/main.py --lat 39.7596 --lon -121.6219 --wind-speed 14 \
+#                --wind-dir 225 --humidity 18 --num-runs 500 \
 #                --seed-dir backend/data/seed/paradise-ca/ --output results/
 ```
 
-Accepts CLI arguments via `argparse`. The `--seed-dir` argument specifies which Region Dataset to load (defaults to `backend/data/seed/paradise-ca/`). Runs the full pipeline and writes JSON output + stdout summary including the region name from `region_config.json`.
+Accepts CLI arguments via `argparse`. The `--seed-dir` argument specifies which Region Dataset to load (defaults to `backend/data/seed/paradise-ca/`). The `--num-runs` argument (default 500) matches the `num_runs` field in the API request body. Runs the full pipeline and writes JSON output + stdout summary including the region name from `region_config.json`.
 
 ---
 
@@ -457,8 +515,10 @@ Accepts CLI arguments via `argparse`. The `--seed-dir` argument specifies which 
 ### Pydantic Schemas (`models/schemas.py`)
 
 ```python
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, Optional
 
 # --- Region Configuration ---
 
@@ -495,7 +555,7 @@ class SimulationRequest(BaseModel):
     wind_gust_mph: float = Field(20.0, ge=0, le=150, description="Wind gust in mph")
     relative_humidity: float = Field(18.0, ge=0, le=100, description="Relative humidity %")
     num_runs: int = Field(500, ge=1, le=2000, description="Number of Monte Carlo runs")
-    max_timesteps: int = Field(180, ge=1, le=1440, description="Max simulation timesteps")
+    max_timesteps: int = Field(180, ge=1, le=1440, description="Max simulation timesteps (see performance note)")
     scenario_preset: Optional[str] = Field(None, description="Named scenario preset")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     seed_dir: Optional[str] = Field(None, description="Path to Region Dataset directory")
@@ -531,7 +591,7 @@ class Zone(BaseModel):
     evacuation_priority_weight: float
     centroid_lat: float
     centroid_lon: float
-    geometry: dict  # GeoJSON polygon
+    geometry: dict[str, Any]  # GeoJSON Polygon geometry object ({type: 'Polygon', coordinates: [...]})
 
 
 class Shelter(BaseModel):
@@ -573,12 +633,16 @@ class BurnProbabilityMap(BaseModel):
 
 
 class ArrivalTimeStats(BaseModel):
-    """Per-cell arrival time statistics across MC runs."""
+    """Per-cell arrival time statistics across MC runs.
+    
+    Cells that never ignite in any run use None as the fill value.
+    Statistics are computed only over runs where the cell ignited.
+    """
     grid_bounds: GridBounds
-    mean: list[list[float]]
-    median: list[list[float]]
-    p10: list[list[float]]
-    p90: list[list[float]]
+    mean: list[list[float | None]]    # None for cells that never ignited
+    median: list[list[float | None]]  # None for cells that never ignited
+    p10: list[list[float | None]]     # None for cells that never ignited
+    p90: list[list[float | None]]     # None for cells that never ignited
 
 
 class RouteResult(BaseModel):
@@ -589,8 +653,13 @@ class RouteResult(BaseModel):
     path_coords: list[tuple[float, float]]  # (lat, lon) pairs
     node_ids: list[int]
     total_travel_time_min: float
-    viability_score: Optional[float] = None  # % of MC runs route succeeds
+    viability_score: Optional[float] = None  # % of MC runs route succeeds (per-route, not per-segment — see note below)
     strategy: str  # "baseline" or "optimized"
+
+# Note on Route_Viability_Score granularity (Req 10.3 clarification):
+# Route_Viability_Score is computed per route, not per segment. Req 10.3's
+# "per-segment" refers to the route's path segments having their coordinates
+# listed in path_coords, with a single viability score for the whole route.
 
 
 class ZoneResult(BaseModel):
@@ -602,13 +671,25 @@ class ZoneResult(BaseModel):
     failure_risk_pct: Optional[float] = None
     baseline_route: RouteResult
     optimized_route: Optional[RouteResult] = None
-    geometry: dict  # GeoJSON polygon
+    geometry: dict[str, Any]  # GeoJSON Polygon geometry object ({type: 'Polygon', coordinates: [...]})
 
 
 # --- Response Models ---
 
+class SimulationSummary(BaseModel):
+    """High-level summary statistics."""
+    mean_cells_burned: float
+    median_cells_burned: float
+    simulation_duration_sec: float
+    runs_completed: int
+
+
 class SimulationResponse(BaseModel):
-    """Full response for POST /api/simulate."""
+    """Full response for POST /api/simulate.
+    
+    Note: Uses `from __future__ import annotations` at the top of schemas.py
+    to allow forward references, or define SimulationSummary before this class.
+    """
     region_name: str
     scenario: str
     num_runs: int
@@ -622,19 +703,40 @@ class SimulationResponse(BaseModel):
     summary: SimulationSummary
 
 
-class SimulationSummary(BaseModel):
-    """High-level summary statistics."""
-    mean_cells_burned: float
-    median_cells_burned: float
-    simulation_duration_sec: float
-    runs_completed: int
-
-
 class WindResponse(BaseModel):
     """Response for GET /api/wind."""
     conditions: WindConditions
     source: str  # "nws_live", "fallback", or "manual_override"
     forecast_text: Optional[str] = None
+
+
+# --- Ingest Models ---
+
+class IngestRequest(BaseModel):
+    """Request body for POST /api/ingest.
+    
+    Ingestion is US-only because LANDFIRE and NWS have US coverage.
+    Simulation (SimulationRequest) accepts any coordinate worldwide since
+    data is pre-loaded from the region dataset.
+    """
+    lat: float = Field(..., ge=18.0, le=72.0, description="Center latitude (US only)")
+    lon: float = Field(..., ge=-180.0, le=-65.0, description="Center longitude (US only)")
+    radius_km: float = Field(10.0, ge=1.0, le=50.0, description="Bounding box half-width in km")
+
+
+class IngestResponse(BaseModel):
+    """Response for POST /api/ingest."""
+    status: str  # "generating" or "complete"
+    region_slug: str
+    warnings: list[str] = []
+
+
+class IngestStatusResponse(BaseModel):
+    """Response for GET /api/ingest/{region_slug}/status."""
+    status: str  # "generating", "complete", or "failed"
+    progress_pct: int
+    completed_files: list[str] = []
+    warnings: list[str] = []
 ```
 
 ### Internal Data Structures (not Pydantic — used in computation)
@@ -646,6 +748,31 @@ class WindResponse(BaseModel):
 | `fuel_grid` | `np.ndarray` float32 (H, W) | Spread rate multipliers from LANDFIRE |
 | `burn_count` | `np.ndarray` int32 (H, W) | Accumulator: how many MC runs ignited each cell |
 | `road_graph` | `nx.DiGraph` | Nodes with (lat, lon), edges with travel_time, capacity |
+| `road_closures` | `dict[tuple[int, int], float]` | Per-run road closure probabilities keyed by (source, target) node ID pair |
+| `single_run_result` | `SingleRunResult` (dataclass) | Per-run output: fire_grid, ignition_times, optimized routes, civ_delay (see below) |
+
+#### `SingleRunResult` — Per-Run Output (Internal Dataclass)
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class SingleRunResult:
+    """Output of a single Monte Carlo simulation run. Internal only — not serialized."""
+    run_index: int
+    fire_grid: np.ndarray        # burn_mask (bool array) for this run
+    ignition_times: np.ndarray   # per-cell ignition timestep (-1 = never)
+    optimized_routes: dict[str, OptimizedRouteResult]  # zone_id → route result
+    civ_delay: float             # civilian delay sampled for this run (minutes)
+```
+
+This dataclass is used to pass per-run results from the Monte Carlo engine to `EvacuationRouter.compute_viability_scores()`. It is an in-memory structure, not a Pydantic model.
+
+### Performance Constraints
+
+- Optimized routing runs once per Monte Carlo run (~500 times). `POST /api/simulate` with `num_runs=500` must complete within 5 minutes for a region with up to 20 zones and 5,000 road edges.
+- The `num_runs` parameter is intentionally configurable: 500 for full accuracy, 10–50 for interactive/demo use.
+- **`max_timesteps` performance note**: The 5-minute SLA applies to the default `max_timesteps=180` (3 hours of simulated time). The upper bound of `le=1440` (24 hours) is allowed for research use, but callers using high `max_timesteps` values should reduce `num_runs` proportionally to stay within acceptable runtimes. For example, `max_timesteps=1440` with `num_runs=50` is reasonable; `max_timesteps=1440` with `num_runs=500` may exceed the 5-minute target significantly.
 
 ### Seed Data File Formats
 
@@ -703,15 +830,15 @@ backend/data/seed/{region-name}/
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### Property 1: Spread Rate Formula Correctness
+### Property 1: Spread Rate Formula and Ignition Probability Correctness
 
-*For any* valid combination of wind speed (≥0 mph), wind angle (0–360°), relative humidity (0–100%), and fuel multiplier (0.0–1.5), the computed spread rate SHALL equal `R0 * fuel_multiplier * exp(0.1783 * wind_speed * cos(wind_angle)) * (1 - humidity/100 * 0.8)` where R0 = 0.05 km/min.
+*For any* valid combination of wind speed (≥0 mph), wind angle (0–360°), relative humidity (0–100%), and fuel multiplier (0.0–1.5), the computed spread rate SHALL equal `R0 * fuel_multiplier * exp(0.1783 * wind_speed * cos(wind_angle)) * (1 - humidity/100 * 0.8)` where R0 = 0.05 km/min, and the resulting ignition probability SHALL equal `min(1.0, spread_rate * timestep_duration_min)` where `timestep_duration_min = 1.0`. The ignition probability SHALL always be in [0.0, 1.0].
 
 **Validates: Requirements 1.2, 1.4**
 
 ### Property 2: Downwind Propagation Bias
 
-*For any* wind direction and a burning cell with 8 neighbors, the neighbor most aligned with the wind direction (smallest angle between wind vector and cell-to-neighbor vector) SHALL have the highest spread probability, and the neighbor most opposed to the wind direction SHALL have the lowest spread probability.
+*For any* wind direction (meteorological convention, degrees from North) and a burning cell with 8 neighbors, after converting to downwind direction via `downwind = (wind_direction_deg + 180) % 360`, the neighbor whose bearing from the burning cell is closest to the downwind direction SHALL have the highest ignition probability, and the neighbor whose bearing is closest to the upwind direction SHALL have the lowest ignition probability.
 
 **Validates: Requirements 1.3**
 
@@ -781,7 +908,7 @@ backend/data/seed/{region-name}/
 
 ### Property 13: Evacuation Ordering Sorted by Priority
 
-*For any* list of zones with computed priority scores, the evacuation ordering SHALL be sorted in descending order of `priority_score = (pop_weight + elderly_weight * 2.0 + disability_weight * 1.5) * fire_exposure_probability`.
+*For any* list of zones with computed priority scores, the evacuation ordering SHALL be sorted in descending order of `priority_score = (pop_weight + (elderly_pct / 100) * 2.0 + (disability_pct / 100) * 1.5) * fire_exposure_probability`, where `fire_exposure_probability` is the mean Burn_Probability_Map value across all grid cells within the zone polygon.
 
 **Validates: Requirements 5.7**
 
@@ -866,10 +993,13 @@ backend/data/seed/{region-name}/
 |---|---|---|
 | Invalid request body (Pydantic validation) | 422 | Pydantic error details with field names and constraints |
 | Invalid seed_dir (directory not found) | 400 | `{"error": "Region dataset not found", "detail": "Directory {seed_dir} does not exist"}` |
+| Absolute seed_dir path provided | 400 | `{"error": "Invalid seed_dir", "detail": "Absolute paths are not allowed"}` |
 | Region dataset validation failure | 500 | `{"error": "Region dataset validation failed", "detail": "..."}` |
 | Seed data loading failure | 500 | `{"error": "Seed data initialization failed", "detail": "..."}` |
 | Simulation engine error | 500 | `{"error": "Simulation failed", "detail": "..."}` |
 | Wind fetch failure (API mode) | 200 | Returns fallback wind with `source: "fallback"` (not an error to the caller) |
+| Ingest request for non-US coordinates | 400 | `{"error": "Non-US coordinates", "detail": "Data ingestion requires US coordinates (lat 18–72, lon -180 to -65)"}` |
+| Ingest pipeline failure | 500 | `{"error": "Ingestion failed", "detail": "..."}` |
 
 ### CLI Error Handling
 
@@ -953,14 +1083,17 @@ The testing strategy uses a dual approach:
 
 | Test | Description |
 |---|---|
-| Full CLI pipeline (default) | `python main.py --runs 10` produces valid JSON output using Paradise default |
-| Full CLI pipeline (custom region) | `python main.py --seed-dir path/to/region --runs 10` loads alternate region |
+| Full CLI pipeline (default) | `python backend/main.py --num-runs 10` produces valid JSON output using Paradise default |
+| Full CLI pipeline (custom region) | `python backend/main.py --seed-dir path/to/region --num-runs 10` loads alternate region |
 | Full API pipeline | `POST /api/simulate` with small run count returns valid response |
 | API with seed_dir | `POST /api/simulate` with seed_dir loads specified region |
+| API seed_dir security | `POST /api/simulate` with absolute seed_dir path returns 400 |
 | Wind endpoint | `GET /api/wind` with mocked NWS returns valid WindResponse |
 | Scenarios endpoint (default) | `GET /api/scenarios` returns Paradise preset list |
 | Scenarios endpoint (custom) | `GET /api/scenarios?seed_dir=path` returns presets from specified region |
 | Invalid region dataset | `POST /api/simulate` with invalid seed_dir returns appropriate error |
+| Ingest endpoint | `POST /api/ingest` with Paradise coords returns region_slug and status |
+| Ingest status polling | `GET /api/ingest/{slug}/status` returns progress after ingest starts |
 
 ### Test Dependencies
 

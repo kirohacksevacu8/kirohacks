@@ -2,7 +2,7 @@
 
 ## Introduction
 
-EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty using Monte Carlo methods and evaluates evacuation route viability for first responders and emergency planners. The system uses a simplified Rothermel fire spread model on a grid, runs ~500 Monte Carlo simulations per scenario, and compares baseline vs. optimized evacuation strategies over a real road network. The architecture is region-agnostic: any geographic region that provides a conformant region dataset can be loaded and simulated. Paradise, CA (Camp Fire 2018) is the bundled default demo region. The backend serves results via a synchronous FastAPI REST API and is also runnable as a standalone CLI tool.
+EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty using Monte Carlo methods and evaluates evacuation route viability for first responders and emergency planners. The system uses a simplified Rothermel fire spread model on a grid, runs ~500 Monte Carlo simulations per scenario, and compares baseline vs. optimized evacuation strategies over a real road network. The architecture is region-agnostic: any geographic region that provides a conformant region dataset can be loaded and simulated. Paradise, CA (Camp Fire 2018) is the bundled default demo region. All data sources — fuel grids, road networks, population zones, shelter locations, and fire perimeters — are derived from real public datasets (LANDFIRE, OpenStreetMap, US Census, NIFC); no synthetic or fabricated seed data is used. The backend serves results via a synchronous FastAPI REST API and is also runnable as a standalone CLI tool.
 
 **Skills Reference:** engineering-backend-architect (system architecture, API design, service decomposition), engineering-data-engineer (data pipeline design, seed data processing, data quality).
 
@@ -14,20 +14,23 @@ EvacuAI is a computation-first Python backend that simulates wildfire spread und
 - **Data_Pipeline**: The collection of preprocessing scripts and loaders that ingest region dataset files and live wind data into simulation-ready formats.
 - **API_Layer**: The FastAPI application that exposes synchronous simulation, results, wind, and scenario endpoints with Pydantic-validated request/response schemas.
 - **Fire_Grid**: A 2D NumPy float32 array representing the simulation area at 100m cell resolution, where each cell holds burn state, ignition time, and spread probability.
+- **Fire_Exposure_Probability**: A per-zone metric used in evacuation priority scoring, defined as the mean Burn_Probability_Map value across all grid cells whose centers fall within the zone's polygon boundary. Ranges from 0.0 (no fire risk) to 1.0 (certain fire exposure).
 - **Fuel_Grid**: A pre-processed NumPy float32 array derived from LANDFIRE FBFM40 data, containing spread rate multipliers (0.0–1.5) per cell.
-- **Road_Graph**: A NetworkX DiGraph built from pre-fetched OpenStreetMap data, where edges carry travel_time, capacity, fire_exposure, and closure_probability attributes.
+- **Road_Graph**: A NetworkX DiGraph built from pre-fetched OpenStreetMap data in node-link JSON format (`{"nodes": [{id, lat, lon}], "links": [{source, target, travel_time, capacity, highway}]}`), where edges carry `travel_time` (float, minutes), `capacity` (int, vehicles/hour), and `highway` (string, road class) attributes. `fire_exposure` and `closure_probability` are computed at simulation time, not stored in the file.
+- **Congestion**: A per-edge metric computed during optimized routing as `congestion = evacuating_population_on_edge / edge_capacity`, where `evacuating_population_on_edge` is the sum of zone populations whose routes traverse that edge, and `edge_capacity` is the vehicles-per-hour attribute from the Road_Graph.
 - **Burn_Probability_Map**: A 2D array aggregated over all Monte Carlo runs, where each cell value represents the fraction of runs in which that cell ignited.
-- **Zone**: A census block group polygon with associated population count, vulnerability weights (elderly percentage, disability percentage), and computed evacuation priority score.
+- **Zone**: A census block group polygon with associated population count, vulnerability percentages (`elderly_pct`, `disability_pct` — stored as 0–100 percentage values in `zones.geojson`), and a pre-computed `evacuation_priority_weight`. The priority scoring formula in Req 5 derives weights from these percentages: `pop_weight = population / max_population_in_region`, `elderly_weight = elderly_pct / 100`, `disability_weight = disability_pct / 100`, then `priority_score = (pop_weight + elderly_weight * 2.0 + disability_weight * 1.5) * fire_exposure_probability`.
 - **Route_Viability_Score**: The percentage of Monte Carlo runs in which a given evacuation route successfully reaches a shelter before fire arrival.
 - **Cutoff_Time**: The latest simulation timestep at which a zone can still begin evacuation and have at least one viable route to a shelter.
 - **Scenario**: A named configuration combining an ignition point, wind parameters, uncertainty settings, and optional presets (e.g., Fast Wind Shift, Night Evacuation).
 - **Region_Dataset**: A self-contained directory of seed data files and a `region_config.json` metadata file that fully describes a geographic region for simulation. Any region that provides the required files in the expected schema can be loaded and simulated.
 - **Region_Config**: A JSON metadata file (`region_config.json`) within a Region_Dataset that specifies the region name, bounding box, default ignition point, and default scenario presets for that region.
-- **Seed_Data**: Pre-fetched and pre-processed data files within a Region_Dataset directory that the system loads at startup without live API calls.
+- **Seed_Data**: Data files within a Region_Dataset directory derived from real public data sources (LANDFIRE, OpenStreetMap, US Census, NIFC) that the system loads at startup. No synthetic or fabricated data is used.
 - **NWS_Client**: The module responsible for fetching live wind forecast data from the National Weather Service api.weather.gov API.
 - **Rothermel_Model**: The simplified fire behavior model using base spread rate R0=0.05 km/min, wind factor exponent 0.1783, and moisture dampening up to 0.8 reduction.
 - **Pydantic_Schema**: A strict data contract defined using Pydantic models for all API request and response payloads.
 - **SeedDataLoader**: The component within the Data_Pipeline responsible for discovering, validating, and loading a Region_Dataset from a configurable directory path.
+- **Data_Ingestion_Pipeline**: The collection of modules in `backend/data/ingest/` that fetch real data from public APIs (LANDFIRE, Overpass, Census, NIFC) and generate a complete Region_Dataset directory for any given US coordinate.
 
 ## Development Phases & Priority
 
@@ -40,6 +43,7 @@ Requirements are organized into four incremental phases. Each phase builds on th
 - Requirement 7: CLI Execution Mode
 - Requirement 8: Project Structure and Module Separation
 - Requirement 11: Region Dataset Specification
+- Requirement 12: Real Data Sources — No Synthetic Seed Data
 
 ### Phase 2 — Routing: Road Graph + Basic Evacuation (Priority: High)
 - Requirement 5: Evacuation Route Optimization (baseline shortest-path only)
@@ -82,18 +86,19 @@ Requirements are organized into four incremental phases. Each phase builds on th
 #### Acceptance Criteria
 
 1. WHEN a scenario is submitted, THE Monte_Carlo_Engine SHALL execute approximately 500 independent simulation runs with stochastically sampled parameters.
-2. THE Monte_Carlo_Engine SHALL sample wind speed from a Normal distribution centered on the provided wind speed value with σ=3 mph, clamped to the wind gust value as an upper bound.
+2. THE Monte_Carlo_Engine SHALL sample wind speed from a Normal distribution centered on the provided wind speed value with σ=3 mph, clamped to [0, wind_gust_mph]. The `wind_gust_mph` parameter serves exclusively as an upper bound on sampled wind speed and does not appear in the Rothermel spread rate formula.
 3. THE Monte_Carlo_Engine SHALL sample wind direction from a Normal distribution centered on the provided wind direction (in degrees) with σ=15°.
 4. THE Monte_Carlo_Engine SHALL sample civilian evacuation delay from a Uniform(2, 15) distribution in minutes per run.
 5. THE Monte_Carlo_Engine SHALL sample road closure probability per edge from a Beta(1.5, 8.5) distribution per run.
 6. WHEN all runs complete, THE Monte_Carlo_Engine SHALL aggregate results into: a Burn_Probability_Map (fraction of runs each cell ignited) and per-cell arrival time statistics (mean, median).
 7. THE Monte_Carlo_Engine SHALL produce deterministic results when initialized with the same random seed.
+8. ALL humidity values throughout the system SHALL be expressed as percentages in the range 0–100 (not as decimal fractions 0.0–1.0). The moisture factor formula `1 - (relative_humidity / 100) * 0.8` assumes this convention.
 
 ### Requirement 3: Seed Data Loading and Preprocessing
 
 **Priority:** Critical (Phase 1 — MVP)
 
-**User Story:** As a developer, I want all non-wind data loadable from a configurable region dataset directory, so that the system supports any geographic region and the demo runs reliably without external API dependencies.
+**User Story:** As a developer, I want all non-wind data loadable from a configurable region dataset directory, so that the system supports any geographic region and the demo runs reliably from pre-fetched real data.
 
 #### Acceptance Criteria
 
@@ -140,14 +145,19 @@ Requirements are organized into four incremental phases. Each phase builds on th
 **Phase 3 — Optimized Routing:**
 
 3. THE Evacuation_Optimizer SHALL compute an optimized strategy that minimizes a weighted cost function: `cost = α * travel_time + β * congestion + γ * fire_exposure + δ * road_closure`, where α, β, γ, δ are configurable weight coefficients with sensible defaults (α=1.0, β=0.5, γ=2.0, δ=1.5).
-4. WHEN computing fire_exposure per edge, THE Evacuation_Optimizer SHALL calculate the fraction of the route segment that is burning at the estimated time of traversal based on the current simulation run's Fire_Grid state.
+4. WHEN computing fire_exposure per edge, THE Evacuation_Optimizer SHALL use the per-run Fire_Grid state (not the aggregated Burn_Probability_Map). Optimized routing runs once per Monte Carlo run using that run's specific fire simulation output. For each edge, `fire_exposure` is the fraction of grid cells along the edge's geographic path that are burning at the estimated time the evacuating population would traverse that edge (a value in [0.0, 1.0]).
+5. WHEN computing congestion per edge, THE Evacuation_Optimizer SHALL use a single-pass greedy assignment: zones are assigned routes in descending priority_score order; after each zone is assigned, congestion on all edges in that route is updated before the next zone routes. Already-assigned zones are not re-routed. `congestion = evacuating_population_on_edge / edge_capacity`, where `evacuating_population_on_edge` is the sum of populations from all zones whose assigned routes traverse that edge, and `edge_capacity` is the vehicles-per-hour attribute from the Road_Graph.
+
+**Performance:**
+
+5a. Optimized routing runs once per Monte Carlo run (~500 times). `POST /api/simulate` with `num_runs=500` SHALL complete within 5 minutes for a region with up to 20 zones and 5,000 road edges. The `num_runs` parameter is intentionally configurable: use 500 for full accuracy, 10–50 for interactive/demo use.
 
 **Phase 4 — Full Viability Scoring:**
 
-5. THE Evacuation_Optimizer SHALL compute a Route_Viability_Score for each route as the percentage of Monte Carlo runs in which the route successfully reaches a shelter before fire arrival at any point along the route.
-6. THE Evacuation_Optimizer SHALL compute a Cutoff_Time for each Zone representing the latest timestep at which evacuation can begin and still have at least one route with a Route_Viability_Score above 50%.
-7. THE Evacuation_Optimizer SHALL produce an evacuation ordering of Zones sorted by descending evacuation_priority_weight, where `priority_score = (pop_weight + elderly_weight * 2.0 + disability_weight * 1.5) * fire_exposure_probability`.
-8. THE Evacuation_Optimizer SHALL output per-zone results including: best route (baseline), best route (optimized), Route_Viability_Score for each, Cutoff_Time, and failure risk percentage.
+6. THE Evacuation_Optimizer SHALL compute a Route_Viability_Score for each route as the percentage of Monte Carlo runs in which the route successfully reaches a shelter before fire arrival at any point along the route.
+7. THE Evacuation_Optimizer SHALL compute a Cutoff_Time for each Zone representing the latest timestep at which evacuation can begin and still have at least one route with a Route_Viability_Score above 50%.
+8. THE Evacuation_Optimizer SHALL produce an evacuation ordering of Zones sorted by descending priority_score, where `priority_score = (pop_weight + (elderly_pct / 100) * 2.0 + (disability_pct / 100) * 1.5) * fire_exposure_probability`. Here `pop_weight = zone_population / max_population_in_region`, `elderly_pct` and `disability_pct` are the percentage values from `zones.geojson`, and `fire_exposure_probability` is the mean Burn_Probability_Map value across all grid cells within the zone polygon (see Glossary: Fire_Exposure_Probability).
+9. THE Evacuation_Optimizer SHALL output per-zone results including: best route (baseline), best route (optimized), Route_Viability_Score for each, Cutoff_Time, and failure risk percentage.
 
 ### Requirement 6: REST API Layer (Synchronous)
 
@@ -161,9 +171,12 @@ Requirements are organized into four incremental phases. Each phase builds on th
 2. THE API_Layer SHALL validate the SimulationRequest ignition point latitude within the range -90.0 to 90.0 and longitude within the range -180.0 to 180.0, accepting any valid geographic coordinate worldwide.
 3. THE API_Layer SHALL expose a `GET /api/wind` endpoint that accepts latitude and longitude query parameters and returns the current NWS wind conditions parsed into numeric values.
 4. THE API_Layer SHALL expose a `GET /api/scenarios` endpoint that accepts an optional `seed_dir` query parameter and returns the list of available scenario presets from the specified Region_Dataset (defaulting to the bundled Paradise dataset).
-5. THE API_Layer SHALL validate all request payloads using Pydantic models and return HTTP 422 with descriptive error messages for invalid inputs.
-6. THE API_Layer SHALL return all geospatial data (burn probability maps, route geometries, zone polygons) in GeoJSON-compatible format within the response schemas.
-7. THE API_Layer SHALL include CORS middleware configured to allow cross-origin requests from the frontend.
+5. THE API_Layer SHALL expose a `POST /api/ingest` endpoint that accepts a JSON request body containing `lat` (float, required), `lon` (float, required), and `radius_km` (float, optional, default 10.0), triggers the Data_Ingestion_Pipeline to generate a new Region_Dataset from real data sources, and returns a response with `status` (string: "generating" or "complete"), `region_slug` (string: generated directory name), and `warnings` (list of strings for any degraded data sources). This endpoint MAY use FastAPI `BackgroundTasks` for long-running ingestion.
+6. IF `POST /api/ingest` runs asynchronously via BackgroundTasks, THE API_Layer SHALL also expose a `GET /api/ingest/{region_slug}/status` endpoint that returns `{"status": "generating" | "complete" | "failed", "progress_pct": int, "completed_files": list[str], "warnings": list[str]}` so callers can poll for completion.
+7. THE API_Layer SHALL validate all request payloads using Pydantic models and return HTTP 422 with descriptive error messages for invalid inputs.
+8. THE API_Layer SHALL return all geospatial data (burn probability maps, route geometries, zone polygons) in GeoJSON-compatible format within the response schemas.
+9. THE API_Layer SHALL include CORS middleware configured to allow cross-origin requests from the frontend.
+10. WHEN the API receives a `seed_dir` parameter (in `POST /api/simulate` or `GET /api/scenarios`), THE API_Layer SHALL resolve the path relative to the server's working directory. Absolute paths SHALL be rejected with HTTP 400 to prevent directory traversal attacks.
 
 ### Requirement 7: CLI Execution Mode
 
@@ -173,7 +186,7 @@ Requirements are organized into four incremental phases. Each phase builds on th
 
 #### Acceptance Criteria
 
-1. THE system SHALL provide a CLI entry point via `python main.py` that accepts command-line arguments for ignition point (lat, lon), wind speed, wind direction, humidity, number of Monte Carlo runs, and a `--seed-dir` argument to specify the Region_Dataset directory to load.
+1. THE system SHALL provide a CLI entry point via `python backend/main.py` that accepts command-line arguments for ignition point (`--lat`, `--lon`), wind parameters (`--wind-speed`, `--wind-dir`, `--humidity`), number of Monte Carlo runs (`--num-runs`, default 500), and a `--seed-dir` argument to specify the Region_Dataset directory to load. The API request body uses the matching field name `num_runs`.
 2. WHEN the `--seed-dir` argument is not provided, THE system SHALL default to the bundled Paradise, CA Region_Dataset.
 3. WHEN executed via CLI, THE system SHALL run the full pipeline: load the specified Region_Dataset, execute Monte Carlo simulations with provided or default wind values, and output aggregated results.
 4. THE system SHALL write CLI output results to a JSON file in a configurable output directory.
@@ -196,15 +209,19 @@ Requirements are organized into four incremental phases. Each phase builds on th
 
 **Priority:** High (Phase 2 — Routing)
 
-**User Story:** As a demo presenter, I want the system to ship with a complete Paradise, CA region dataset as the default, so that the demo runs immediately with realistic data while the architecture supports loading any region.
+**User Story:** As a demo presenter, I want the system to ship with a complete Paradise, CA region dataset as the default, so that the demo runs immediately with realistic data derived from real public sources while the architecture supports loading any region.
 
 #### Acceptance Criteria
 
-1. THE system SHALL bundle a Paradise, CA Region_Dataset at `backend/data/seed/paradise-ca/` containing all required Region_Dataset files as defined in Requirement 11.
-2. THE Paradise Region_Config SHALL specify the region name "Paradise, CA", bounding box 39.65°N to 39.90°N latitude and -121.75°W to -121.40°W longitude, and the Camp Fire origin as the default ignition point.
-3. THE Paradise Region_Dataset SHALL include the Camp Fire perimeter from seed data as the default initial fire state at simulation time t=0.
-4. THE Paradise Region_Dataset SHALL include at least three scenario presets in `scenario_presets.json`: Fast Wind Shift, Night Evacuation, and School Zone, each with region-specific ignition points and wind parameters.
+1. THE system SHALL bundle a Paradise, CA Region_Dataset at `backend/data/seed/paradise-ca/` containing all required Region_Dataset files as defined in Requirement 11, with all data derived from real public sources as defined in Requirement 12.
+2. THE Paradise Region_Config SHALL specify the region name "Paradise, CA", bounding box `min_lat: 39.65`, `max_lat: 39.90`, `min_lon: -121.75`, `max_lon: -121.40` (signed decimal degrees, west is negative), and the Camp Fire origin (lat: 39.8103, lon: -121.4377) as the default ignition point.
+3. THE Paradise Region_Dataset SHALL include the Camp Fire perimeter from real NIFC WFIGS data as the default initial fire state at simulation time t=0.
+4. THE Paradise Region_Dataset SHALL include at least three scenario presets in `scenario_presets.json` with the following parameters:
+   - **Fast Wind Shift**: ignition at Camp Fire origin (39.8103, -121.4377), wind 25 mph NE (45°), gust 40 mph, humidity 10%.
+   - **Night Evacuation**: ignition at Camp Fire origin (39.8103, -121.4377), wind 10 mph SW (225°), gust 15 mph, humidity 30%.
+   - **School Zone**: ignition near Paradise schools (39.7596, -121.6219), wind 15 mph N (0°), gust 25 mph, humidity 15%.
 5. WHEN no `seed_dir` or region is specified by the user, THE system SHALL load the bundled Paradise, CA Region_Dataset as the default.
+6. THE Paradise Region_Dataset fuel grid SHALL be derived from real LANDFIRE FBFM40 data, the road network from real OpenStreetMap data, the population zones from real US Census data, and the shelter locations from real OpenStreetMap amenity data.
 
 ### Requirement 10: Simulation Output Serialization
 
@@ -230,12 +247,37 @@ Requirements are organized into four incremental phases. Each phase builds on th
 
 1. THE system SHALL define a Region_Dataset as a directory containing the following required files: `region_config.json`, `fuel_grid.npy`, `grid_bounds.json`, `road_graph.json`, `zones.geojson`, `shelters.json`, and `scenario_presets.json`.
 2. THE system SHALL treat a fire perimeter GeoJSON file as optional within a Region_Dataset; WHEN present, the filename SHALL be specified in `region_config.json` under the `fire_perimeter_file` field.
-3. THE `region_config.json` file SHALL contain the following fields: `region_name` (string), `bounding_box` (object with `min_lat`, `max_lat`, `min_lon`, `max_lon` as floats), `default_ignition_point` (object with `lat` and `lon` as floats), and `fire_perimeter_file` (string or null).
-4. WHEN the SeedDataLoader loads a Region_Dataset, THE SeedDataLoader SHALL validate that all required files listed in acceptance criterion 1 are present in the directory before proceeding with data loading.
-5. IF a required Region_Dataset file is missing, THEN THE SeedDataLoader SHALL raise a descriptive error listing all missing files.
-6. THE SeedDataLoader SHALL validate that the `region_config.json` conforms to the expected schema (contains all required fields with correct types) and raise a descriptive error if validation fails.
-7. THE system SHALL use the `default_ignition_point` from `region_config.json` when no ignition point is specified by the user, instead of relying on a hardcoded default.
-8. THE system SHALL use the `bounding_box` from `region_config.json` for grid initialization and coordinate validation within the loaded region, instead of relying on hardcoded coordinate ranges.
+3. THE `region_config.json` file SHALL contain the following fields: `region_name` (string), `bounding_box` (object with `min_lat`, `max_lat`, `min_lon`, `max_lon` as signed decimal degree floats — west longitudes are negative), `default_ignition_point` (object with `lat` and `lon` as signed decimal degree floats), and `fire_perimeter_file` (string or null).
+4. THE `road_graph.json` file SHALL use NetworkX node-link JSON format with the following schema: `{"nodes": [{"id": int, "lat": float, "lon": float}], "links": [{"source": int, "target": int, "travel_time": float, "capacity": int, "highway": string}]}`. `travel_time` is in minutes, `capacity` is in vehicles/hour, and `highway` is the OSM road class (e.g., "primary", "residential"). Node `id` values are integers (OSM node IDs or sequential).
+5. THE `grid_bounds.json` file SHALL conform to the following schema: `{"min_lat": float, "max_lat": float, "min_lon": float, "max_lon": float, "cell_size_m": float, "grid_rows": int, "grid_cols": int}`. All lat/lon values are signed decimal degrees. `cell_size_m` defaults to 100.0. `grid_rows` and `grid_cols` define the fuel grid dimensions.
+6. THE `shelters.json` file SHALL conform to the following schema: `[{"shelter_id": string, "name": string, "lat": float, "lon": float, "capacity": int, "accessible": bool}]`. `shelter_id` is a unique identifier (e.g., "osm_12345"), `capacity` is estimated persons, and `accessible` indicates wheelchair accessibility.
+7. THE `scenario_presets.json` file SHALL conform to the following schema: `[{"name": string, "description": string, "ignition_lat": float, "ignition_lon": float, "wind_speed_mph": float, "wind_direction_deg": float, "wind_gust_mph": float, "relative_humidity": float}]`. All wind values are in mph, direction in degrees (0–360), and humidity as a 0–100 percentage.
+8. WHEN the SeedDataLoader loads a Region_Dataset, THE SeedDataLoader SHALL validate that all required files listed in acceptance criterion 1 are present in the directory before proceeding with data loading.
+9. IF a required Region_Dataset file is missing, THEN THE SeedDataLoader SHALL raise a descriptive error listing all missing files.
+10. THE SeedDataLoader SHALL validate that the `region_config.json` conforms to the expected schema (contains all required fields with correct types) and raise a descriptive error if validation fails.
+11. THE system SHALL use the `default_ignition_point` from `region_config.json` when no ignition point is specified by the user, instead of relying on a hardcoded default.
+12. THE system SHALL use the `bounding_box` from `region_config.json` for grid initialization and coordinate validation within the loaded region, instead of relying on hardcoded coordinate ranges.
+
+### Requirement 12: Real Data Sources — No Synthetic Seed Data
+
+**Priority:** Critical (Phase 1 — MVP)
+
+**User Story:** As an evacuation planner, I want all simulation data sourced from real public datasets and APIs, so that simulation results reflect actual terrain, road networks, population demographics, and shelter locations rather than fabricated data.
+
+#### Acceptance Criteria
+
+1. THE system SHALL NOT use synthetic, fabricated, or placeholder data for any data source in production or demo Region Datasets. All data files within a Region_Dataset SHALL be derived from real public data sources.
+2. THE fuel grid (`fuel_grid.npy`) SHALL be derived from real USGS LANDFIRE FBFM40 raster data fetched via the LANDFIRE Product Service API, NOT from randomly generated or synthetic fuel grids.
+3. THE road network (`road_graph.json`) SHALL be derived from real OpenStreetMap data fetched via the Overpass API, NOT from synthetic or hand-crafted graph structures.
+4. THE population and vulnerability zones (`zones.geojson`) SHALL be derived from real US Census Bureau data (ACS 5-Year demographics joined to TIGER/Web block group geometries), NOT from synthetic population figures or fabricated zone polygons.
+5. THE shelter locations (`shelters.json`) SHALL be derived from real OpenStreetMap amenity data (shelters, community centres, schools, places of worship, civic buildings, emergency assembly points) fetched via the Overpass API, NOT from manually placed or synthetic shelter entries.
+6. THE fire perimeter data (when present) SHALL be derived from real NIFC WFIGS (Wildland Fire Interagency Geospatial Services) perimeter data fetched via the ArcGIS REST API, NOT from synthetic or hand-drawn perimeters.
+7. THE wind data SHALL be fetched live from the National Weather Service api.weather.gov API as specified in Requirement 4, with fallback values used ONLY when the API is unreachable — NOT as a primary data source.
+8. THE system SHALL provide a data ingestion pipeline (`backend/data/ingest/`) that fetches all required Region_Dataset files from their respective real data sources given a center coordinate (lat, lon) and radius.
+9. THE data ingestion pipeline SHALL be executable via both a CLI command (`python backend/main.py ingest --lat {lat} --lon {lon} --radius {radius_km}`) and an API endpoint (`POST /api/ingest`).
+10. WHEN a real data source API is temporarily unavailable during ingestion, THE system MAY use a clearly-logged fallback with a warning, but the fallback SHALL be documented as degraded data quality and SHALL NOT be the default or intended mode of operation.
+11. THE bundled Paradise, CA demo Region_Dataset SHALL contain data derived from the real data sources listed above (LANDFIRE, OSM, Census, NIFC), NOT synthetic approximations.
+12. THE scenario presets (`scenario_presets.json`) are the ONLY data file exempt from the real-data requirement, as they represent hypothetical "what-if" configurations rather than observed data.
 
 ---
 
@@ -250,13 +292,14 @@ Below is a phased todo list with prompts to run for each phase. Each phase ends 
 | Step | Task | Agent Prompt |
 |------|------|-------------|
 | 1.1 | Scaffold project structure | "Create the /backend directory structure with modules: simulation/, monte_carlo/, data/, evacuation/, api/, models/. Add __init__.py files, requirements.txt with numpy, scipy, networkx, fastapi, uvicorn, pydantic, shapely, requests. Add main.py CLI entry point stub." |
-| 1.2 | Define region dataset structure | "Create the region dataset directory at /backend/data/seed/paradise-ca/. Move or create all seed files there. Create region_config.json with region_name, bounding_box, default_ignition_point, and fire_perimeter_file fields for Paradise, CA." |
-| 1.3 | Build seed data loaders | "Implement /backend/data/loader.py with a SeedDataLoader class that accepts a configurable seed_dir path. It loads all region dataset files (region_config.json, fuel_grid.npy, grid_bounds.json, fire perimeter if specified, road_graph.json, zones.geojson, shelters.json, scenario_presets.json) with validation for required files and error handling for missing/malformed files. Default seed_dir to backend/data/seed/paradise-ca/. Create synthetic seed data files for development." |
+| 1.2a | Implement data ingestion pipeline | "Implement the data ingestion pipeline at /backend/data/ingest/ with modules for each data source: fuel.py (LANDFIRE), roads.py (Overpass), zones.py (Census+TIGER), shelters.py (Overpass), perimeters.py (NIFC), region.py (config generator), scenarios.py (preset generator), orchestrator.py (ties all together), and overpass.py (shared rate limiter). Each module fetches from its real API and outputs the corresponding seed file." |
+| 1.2b | Generate Paradise seed data | "Run the ingestion pipeline for Paradise, CA (lat=39.7596, lon=-121.6219, radius_km=15) to generate the bundled seed dataset at /backend/data/seed/paradise-ca/. If any API is temporarily unavailable, log a warning and document which files are degraded — the simulation pipeline work (steps 1.4–1.6) can proceed with whatever files are available while data issues are resolved separately." |
+| 1.3 | Build seed data loaders | "Implement /backend/data/loader.py with a SeedDataLoader class that accepts a configurable seed_dir path. It loads all region dataset files (region_config.json, fuel_grid.npy, grid_bounds.json, fire perimeter if specified, road_graph.json, zones.geojson, shelters.json, scenario_presets.json) with validation for required files and error handling for missing/malformed files. Default seed_dir to backend/data/seed/paradise-ca/. All seed data must be derived from real public data sources — no synthetic data." |
 | 1.4 | Implement fire spread engine | "Implement /backend/simulation/fire_spread.py with the simplified Rothermel model: R0=0.05 km/min, wind_factor=exp(0.1783*wind_speed*cos(angle)), moisture_factor=1-(rh/100)*0.8. Grid is 100m cells, 1-min timesteps. Use NumPy vectorized operations. Track ignition times per cell." |
 | 1.5 | Implement Monte Carlo engine | "Implement /backend/monte_carlo/engine.py that runs N simulations sampling wind_speed~Normal(μ,3), wind_dir~Normal(μ,15), civ_delay~Uniform(2,15), road_closure~Beta(1.5,8.5). Aggregate into burn probability map and arrival time stats. Support deterministic seeding." |
-| 1.6 | Wire CLI entry point | "Wire /backend/main.py to accept CLI args (--lat, --lon, --wind-speed, --wind-dir, --humidity, --runs, --seed-dir), load the specified region dataset (defaulting to paradise-ca), run Monte Carlo, and output results JSON + stdout summary including region name." |
+| 1.6 | Wire CLI entry point | "Wire /backend/main.py to accept CLI args (--lat, --lon, --wind-speed, --wind-dir, --humidity, --num-runs, --seed-dir), load the specified region dataset (defaulting to paradise-ca), run Monte Carlo, and output results JSON + stdout summary including region name." |
 
-**Validation:** `python backend/main.py --runs 10` completes without error using the Paradise default region and produces a results JSON with a burn probability map. `python backend/main.py --seed-dir path/to/other/region --runs 10` loads a different region dataset.
+**Validation:** `python backend/main.py --num-runs 10` completes without error using the Paradise default region and produces a results JSON with a burn probability map. `python backend/main.py --seed-dir path/to/other/region --num-runs 10` loads a different region dataset.
 
 ### Phase 2 — Routing: Road Graph + Baseline Evacuation
 
@@ -268,7 +311,7 @@ Below is a phased todo list with prompts to run for each phase. Each phase ends 
 | 2.2 | Implement baseline routing | "Implement /backend/evacuation/router.py with baseline shortest-path routing using Dijkstra on travel_time to nearest shelter for each zone centroid. Output per-zone: route node list, total travel_time, shelter_id." |
 | 2.3 | Verify demo region defaults | "Ensure the Paradise region_config.json provides correct defaults (bbox, Camp Fire ignition point, scenario presets). Ensure CLI runs with zero arguments using all defaults from the bundled Paradise region dataset." |
 
-**Validation:** `python backend/main.py --runs 10` now includes per-zone baseline routes in the output JSON, with defaults sourced from region_config.json.
+**Validation:** `python backend/main.py --num-runs 10` now includes per-zone baseline routes in the output JSON, with defaults sourced from region_config.json.
 
 ### Phase 3 — API: FastAPI + Optimized Routing + Wind
 
