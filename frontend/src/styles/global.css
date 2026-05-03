@@ -82,19 +82,6 @@ select:focus-visible {
   gap: var(--space-3);
 }
 
-.brand-mark {
-  align-items: center;
-  background: linear-gradient(180deg, var(--color-fire), var(--color-fire-deep));
-  border-radius: var(--radius-sm);
-  color: white;
-  display: grid;
-  font-weight: 900;
-  height: 32px;
-  place-items: center;
-  width: 32px;
-  box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
-}
-
 .brand-wordmark,
 .brand-subtitle,
 .header-bar__scenario span,
@@ -137,8 +124,69 @@ select:focus-visible {
   white-space: nowrap;
 }
 
-.header-bar__mobile-toggle {
-  display: none;
+.header-bar__panel-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  min-width: 32px;
+  position: relative;
+}
+
+.header-bar__panel-toggle.is-active {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--color-route);
+  color: var(--color-text);
+}
+
+.header-bar__panel-icon {
+  fill: none;
+  height: 18px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 18px;
+}
+
+.tooltip-button {
+  position: relative;
+}
+
+.tooltip-button::after {
+  background: rgba(10, 14, 23, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-text);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  left: 50%;
+  line-height: 1;
+  opacity: 0;
+  padding: var(--space-2);
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translate(-50%, 4px);
+  transition: opacity var(--ease-fast), transform var(--ease-fast);
+  white-space: nowrap;
+  z-index: 30;
+}
+
+.tooltip-button:hover::after,
+.tooltip-button:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.tooltip-button--right::after {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+
+.tooltip-button--right:hover::after,
+.tooltip-button--right:focus-visible::after {
+  transform: translateY(0);
 }
 
 .panel__close {
@@ -468,7 +516,6 @@ select:focus-visible {
 .icon-button,
 .segmented-control button,
 .table-sort,
-.drawer-tab,
 .ordering-list button {
   align-items: center;
   border: 1px solid var(--color-border);
@@ -813,40 +860,6 @@ select:focus-visible {
 
 .route-line__score--low {
   color: var(--color-route-low);
-}
-
-.drawer-tab {
-  background: rgba(10, 14, 23, 0.82);
-  border: 1px solid var(--color-border-soft);
-  color: var(--color-text);
-  display: none;
-  min-width: 44px;
-  padding: var(--space-2) var(--space-3);
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 7;
-  font-size: 13px;
-  backdrop-filter: blur(8px);
-  transition: background var(--ease-standard), border-color var(--ease-standard);
-}
-
-.drawer-tab:hover {
-  background: rgba(31, 41, 55, 0.9);
-  border-color: var(--color-route);
-}
-
-.controls-closed .drawer-tab--left,
-.results-closed .drawer-tab--right {
-  display: inline-flex;
-}
-
-.drawer-tab--left {
-  left: var(--space-2);
-}
-
-.drawer-tab--right {
-  right: var(--space-2);
 }
 
 .zone-tooltip {
@@ -1265,11 +1278,6 @@ select:focus-visible {
 @media (max-width: 1024px) {
   .header-bar {
     grid-template-columns: auto minmax(120px, 1fr) auto;
-  }
-
-  .header-bar__mobile-toggle,
-  .drawer-tab {
-    display: inline-flex;
   }
 
   .header-bar__scenario {

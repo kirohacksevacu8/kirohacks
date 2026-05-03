@@ -27,7 +27,6 @@ export function createMockApiClient(): ApiClient {
     async runSimulation(
       request: SimulationRequest,
       onProgress?: (progress: SimulationProgress) => void,
-      _signal?: AbortSignal,
     ): Promise<SimulationResponse> {
       const startedAt = Date.now();
       const ticks = [0.08, 0.18, 0.34, 0.52, 0.71, 0.88, 1];

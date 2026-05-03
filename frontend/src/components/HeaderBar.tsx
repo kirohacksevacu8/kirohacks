@@ -9,23 +9,27 @@ export function HeaderBar() {
   const modifiedWind = useSimulationStore((s) => s.modifiedWind);
   const wind = useSimulationStore((s) => s.wind);
   const demoMode = useSimulationStore((s) => s.demoMode);
+  const panels = useSimulationStore((s) => s.panels);
   const setPanel = useSimulationStore((s) => s.setPanel);
   const { toggleDemoMode } = useSimulation();
+  const controlsLabel = panels.controls ? "Close controls panel" : "Open controls panel";
+  const resultsLabel = panels.results ? "Close results panel" : "Open results panel";
 
   return (
     <header className="header-bar">
       <div className="brand-lockup">
         <button
-          className="icon-button header-bar__mobile-toggle"
+          className={`icon-button header-bar__panel-toggle tooltip-button ${panels.controls ? "is-active" : ""}`}
           type="button"
-          aria-label="Open controls"
-          onClick={() => setPanel("controls", true)}
+          aria-label={controlsLabel}
+          aria-pressed={panels.controls}
+          data-tooltip={controlsLabel}
+          onClick={() => setPanel("controls", !panels.controls)}
         >
-          <span aria-hidden="true">M</span>
+          <ControlsPanelIcon />
         </button>
-        <div className="brand-mark" aria-hidden="true">E</div>
         <div>
-          <strong className="brand-wordmark">EvacuAI</strong>
+          <strong className="brand-wordmark">evacu8</strong>
           <span className="brand-subtitle">Wildfire Evacuation Intelligence</span>
         </div>
       </div>
@@ -47,14 +51,37 @@ export function HeaderBar() {
           {demoMode ? "Demo ON" : "Demo"}
         </button>
         <button
-          className="icon-button header-bar__mobile-toggle"
+          className={`icon-button header-bar__panel-toggle tooltip-button tooltip-button--right ${panels.results ? "is-active" : ""}`}
           type="button"
-          aria-label="Open results"
-          onClick={() => setPanel("results", true)}
+          aria-label={resultsLabel}
+          aria-pressed={panels.results}
+          data-tooltip={resultsLabel}
+          onClick={() => setPanel("results", !panels.results)}
         >
-          <span aria-hidden="true">R</span>
+          <ResultsPanelIcon />
         </button>
       </div>
     </header>
+  );
+}
+
+function ControlsPanelIcon() {
+  return (
+    <svg className="header-bar__panel-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 5h6v14H4z" />
+      <path d="M14 7h6M14 12h6M14 17h6" />
+    </svg>
+  );
+}
+
+function ResultsPanelIcon() {
+  return (
+    <svg className="header-bar__panel-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 19V5" />
+      <path d="M8 19v-6" />
+      <path d="M13 19V9" />
+      <path d="M18 19v-3" />
+      <path d="M3 19h18" />
+    </svg>
   );
 }

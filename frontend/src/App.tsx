@@ -75,7 +75,7 @@ export default function App() {
       </div>
       <ToastContainer />
       <div className="viewport-too-small" role="alert" aria-live="polite">
-        <strong>EvacuAI requires a viewport of at least 1024px wide.</strong>
+        <strong>evacu8 requires a viewport of at least 1024px wide.</strong>
         <span>Please use a desktop browser at 1280×800 or larger.</span>
       </div>
     </div>

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { PickingInfo } from "@deck.gl/core";
 import DeckGL from "@deck.gl/react";
-import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
-import { PathStyleExtension } from "@deck.gl/extensions";
+import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, type PathLayerProps } from "@deck.gl/layers";
+import { PathStyleExtension, type PathStyleExtensionProps } from "@deck.gl/extensions";
 import Map, { type MapRef, Layer, Source } from "react-map-gl/mapbox";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { useSimulationStore } from "../../stores/simulationStore";
@@ -46,6 +46,7 @@ interface ArrowDatum {
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
+const EMPTY_ZONES: ZoneResult[] = [];
 
 const initialViewState: MapCamera = {
   longitude: -121.6219,
@@ -63,10 +64,28 @@ export function MapView() {
   const [dashOffset, setDashOffset] = useState(0);
   const mapRef = useRef<MapRef>(null);
 
-  const zones = store.result?.zone_results ?? [];
+  const zones = store.result?.zone_results ?? EMPTY_ZONES;
   const burnMap = store.result?.burn_probability_map;
   const shelters = store.result ? deriveShelters(store.result.zone_results) : [];
   const routes = routeData(zones, store.selectedRouteId);
+  const routeOverlayProps = store.layers.routes && routes.length > 0
+    ? {
+        id: "route-overlay",
+        data: routes,
+        pickable: true,
+        getPath: (d) => routePath(d.route),
+        getColor: (d) => routeColor(d.route.viability_score ?? 0, d.selected),
+        getWidth: (d) => (d.selected ? 8 : 4),
+        widthUnits: "pixels",
+        onClick: (info: PickingInfo<RouteDatum>) => {
+          if (info.object) store.selectRoute(info.object.route.route_id, info.object.route.zone_id);
+        },
+        extensions: [new PathStyleExtension({ dash: true, highPrecisionDash: true })],
+        getDashArray: [8, 4] as const,
+        dashGapPickable: true,
+        dashJustified: false,
+      } satisfies PathLayerProps<RouteDatum> & PathStyleExtensionProps<RouteDatum>
+    : null;
 
   // Animate route arrow offset
   useEffect(() => {
@@ -173,24 +192,7 @@ export function MapView() {
           widthUnits: "pixels",
         })
       : null,
-    store.layers.routes && routes.length > 0
-      ? new PathLayer<RouteDatum>({
-          id: "route-overlay",
-          data: routes,
-          pickable: true,
-          getPath: (d) => routePath(d.route),
-          getColor: (d) => routeColor(d.route.viability_score ?? 0, d.selected),
-          getWidth: (d) => (d.selected ? 8 : 4),
-          widthUnits: "pixels",
-          onClick: (info: PickingInfo<RouteDatum>) => {
-            if (info.object) store.selectRoute(info.object.route.route_id, info.object.route.zone_id);
-          },
-          extensions: [new PathStyleExtension({ dash: true, highPrecisionDash: true })],
-          getDashArray: [8, 4],
-          dashGapPickable: true,
-          dashJustified: false,
-        } as ConstructorParameters<typeof PathLayer>[0])
-      : null,
+    routeOverlayProps ? new PathLayer<RouteDatum>(routeOverlayProps) : null,
     store.layers.routes && routes.length > 0
       ? new TextLayer<ArrowDatum>({
           id: "route-arrows",
@@ -339,21 +341,6 @@ export function MapView() {
           </div>
         </div>
       ) : null}
-
-      <button
-        className="drawer-tab drawer-tab--left"
-        type="button"
-        onClick={() => store.setPanel("controls", !store.panels.controls)}
-      >
-        Controls
-      </button>
-      <button
-        className="drawer-tab drawer-tab--right"
-        type="button"
-        onClick={() => store.setPanel("results", !store.panels.results)}
-      >
-        Results
-      </button>
 
       {hoveredZone ? <ZoneTooltip hoveredZone={hoveredZone} /> : null}
       <AnimationTimeline />
