@@ -12,6 +12,10 @@ export function ComparisonView({ result, previousResult }: ComparisonViewProps) 
 
   return (
     <section className="comparison-view">
+      <div className="section-title">
+        <h3>Strategy Comparison</h3>
+        <span>baseline vs optimized</span>
+      </div>
       <div className="comparison-view__columns">
         <StrategyColumn
           label="Baseline (Shortest Path)"
@@ -60,15 +64,15 @@ function StrategyColumn({
       <h3>{label}</h3>
       <dl>
         <div>
-          <dt>Viability</dt>
+          <dt>Avg viability score</dt>
           <dd>{score.toFixed(1)}%</dd>
         </div>
         <div>
-          <dt>Avg evac time</dt>
+          <dt>Avg evacuation time</dt>
           <dd>{time.toFixed(0)} min</dd>
         </div>
         <div>
-          <dt>Failure risk</dt>
+          <dt>Avg failure risk</dt>
           <dd>{risk.toFixed(1)}%</dd>
         </div>
       </dl>

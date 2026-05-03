@@ -1,5 +1,5 @@
 import { MetricCard } from "../../components/MetricCard";
-import { useSimulationState } from "../../context/useSimulationState";
+import { useSimulationStore } from "../../stores/simulationStore";
 import { useSimulation } from "../../hooks/useSimulation";
 import type { SimulationResponse } from "../../types/api";
 import { ComparisonView } from "./ComparisonView";
@@ -8,12 +8,16 @@ import { RouteCard } from "./RouteCard";
 import { ZoneEvacuationTable } from "./ZoneEvacuationTable";
 
 export function ResultsPanel() {
-  const { state, dispatch } = useSimulationState();
+  const result = useSimulationStore((s) => s.result);
+  const previousResult = useSimulationStore((s) => s.previousResult);
+  const modifiedWind = useSimulationStore((s) => s.modifiedWind);
+  const status = useSimulationStore((s) => s.status);
+  const panels = useSimulationStore((s) => s.panels);
+  const setPanel = useSimulationStore((s) => s.setPanel);
   const { runSimulation } = useSimulation();
-  const result = state.result;
 
   return (
-    <aside className={`panel results-panel ${state.panels.results ? "is-open" : ""}`}>
+    <aside className={`panel results-panel ${panels.results ? "is-open" : ""}`}>
       <div className="panel__header">
         <div>
           <span className="eyebrow">Results Panel</span>
@@ -23,9 +27,9 @@ export function ResultsPanel() {
           className="icon-button panel__close"
           type="button"
           aria-label="Close results"
-          onClick={() => dispatch({ type: "panelSet", panel: "results", open: false })}
+          onClick={() => setPanel("results", false)}
         >
-          x
+          ✕
         </button>
       </div>
 
@@ -35,55 +39,66 @@ export function ResultsPanel() {
             label="Awaiting Simulation"
             value="Ready"
             tone="info"
-            detail="Configure ignition, wind, and runs to populate route comparison."
+            detail="Set an ignition point, configure wind conditions, and run the simulation to see evacuation route analysis."
           />
         </div>
       ) : (
         <>
           <MetricCard
-            label="Key Demo Metric"
+            label="Best Route Viability"
             value={keyRouteMetric(result)}
             tone="info"
-            detail={`Route ${bestRouteName(result)} survives across sampled scenarios`}
+            detail={`Route ${bestRouteName(result)} — highest survival rate across Monte Carlo scenarios`}
             large
           />
+          {modifiedWind ? (
+            <p className="modified-wind-notice">
+              <span className="badge badge--warning">Modified Wind</span>
+              Results reflect manually adjusted wind conditions
+            </p>
+          ) : null}
 
-          <ComparisonView result={result} previousResult={state.previousResult} />
+          <ComparisonView result={result} previousResult={previousResult} />
+
+          {result.zone_results.every((z) => (z.optimized_route?.viability_score ?? 0) === 0) ? (
+            <p className="no-routes-notice" role="alert">
+              ⚠ No viable routes found. All routes have 0% viability — consider adjusting wind parameters or ignition point.
+            </p>
+          ) : null}
 
           <section className="summary-grid" aria-label="Summary statistics">
             <MetricCard
-              label="Population At Risk"
+              label="Total Population at Risk"
               value={totalPopulation(result).toLocaleString()}
               tone="warning"
+              detail="residents in affected evacuation zones"
             />
             <MetricCard
-              label="Cutoff Below 10m"
+              label="Zones Under 10 min Cutoff"
               value={zonesUnderCutoff(result, 10)}
               unit="zones"
               tone="critical"
+              detail="fire reaches zone before full evacuation"
             />
             <MetricCard
               label="Optimization Lift"
               value={optimizationLift(result).toFixed(1)}
               unit="%"
               tone="success"
+              detail="viability gain from optimized vs baseline routes"
             />
-            <MetricCard
-              label="MC Confidence"
-              value="90"
-              unit="% CI"
-              tone="default"
-            />
+            <MetricCard label="Monte Carlo Confidence" value="90" unit="% CI" tone="default" detail="confidence interval across simulation runs" />
           </section>
 
           <div className="results-actions">
             <button
               className="secondary-button"
               type="button"
-              disabled={state.status === "running"}
+              disabled={status === "running"}
+              title="Re-run simulation with wind shifted +45° to compare route viability"
               onClick={() => void runSimulation({ quickCompare: true })}
             >
-              Quick Compare +45 deg
+              Quick Compare (+45° wind shift)
             </button>
           </div>
 
@@ -134,7 +149,9 @@ function zonesUnderCutoff(result: SimulationResponse, cutoff: number) {
 
 function optimizationLift(result: SimulationResponse) {
   const baseline = average(result.zone_results.map((zone) => zone.baseline_route.viability_score ?? 0));
-  const optimized = average(result.zone_results.map((zone) => zone.optimized_route?.viability_score ?? 0));
+  const optimized = average(
+    result.zone_results.map((zone) => zone.optimized_route?.viability_score ?? 0),
+  );
   return optimized - baseline;
 }
 

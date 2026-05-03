@@ -1,4 +1,4 @@
-import type { RunStatus } from "../context/simulationReducer";
+import type { RunStatus } from "../stores/simulationStore";
 
 interface SimulationStatusProps {
   status: RunStatus;

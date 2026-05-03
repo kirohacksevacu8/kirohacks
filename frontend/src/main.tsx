@@ -1,8 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { SimulationProvider } from "./context/SimulationContext";
-import { ToastProvider } from "./context/ToastContext";
 import "./styles/design-tokens.css";
 import "./styles/global.css";
 
@@ -14,10 +12,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ToastProvider>
-      <SimulationProvider>
-        <App />
-      </SimulationProvider>
-    </ToastProvider>
+    <App />
   </StrictMode>,
 );

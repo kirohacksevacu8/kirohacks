@@ -1,12 +1,12 @@
-import { useContext } from "react";
-import { ToastContext } from "./toastContextCore";
+import { useToastStore } from "../stores/toastStore";
+import type { ToastTone } from "../stores/toastStore";
 
 export function useToasts() {
-  const context = useContext(ToastContext);
+  const push = useToastStore((s) => s.push);
 
-  if (!context) {
-    throw new Error("useToasts must be used inside ToastProvider");
+  function pushToast(toast: { tone: ToastTone; title: string; message?: string }) {
+    push(toast);
   }
 
-  return context;
+  return { pushToast };
 }

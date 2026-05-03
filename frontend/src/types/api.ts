@@ -30,7 +30,7 @@ export interface SimulationRequest {
   max_timesteps: number;
   scenario_preset?: string | null;
   seed?: number | null;
-  region?: string | null;
+  seed_dir?: string | null;
 }
 
 export interface GridBounds {
@@ -95,10 +95,10 @@ export interface BurnProbabilityMap {
 
 export interface ArrivalTimeStats {
   grid_bounds: GridBounds;
-  mean: number[][];
-  median: number[][];
-  p10: number[][];
-  p90: number[][];
+  mean: (number | null)[][];
+  median: (number | null)[][];
+  p10: (number | null)[][];
+  p90: (number | null)[][];
 }
 
 export interface RouteResult {
@@ -164,6 +164,7 @@ export interface ApiClient {
   runSimulation(
     request: SimulationRequest,
     onProgress?: (progress: SimulationProgress) => void,
+    signal?: AbortSignal,
   ): Promise<SimulationResponse>;
 }
 

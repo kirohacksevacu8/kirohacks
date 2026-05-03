@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSimulationState } from "../../context/useSimulationState";
+import { useSimulationStore } from "../../stores/simulationStore";
 import type { ZoneResult } from "../../types/api";
 
 type SortKey =
@@ -14,7 +14,8 @@ interface ZoneEvacuationTableProps {
 }
 
 export function ZoneEvacuationTable({ zones }: ZoneEvacuationTableProps) {
-  const { state, dispatch } = useSimulationState();
+  const selectedZoneId = useSimulationStore((s) => s.selectedZoneId);
+  const selectZone = useSimulationStore((s) => s.selectZone);
   const [sortKey, setSortKey] = useState<SortKey>("evacuation_priority_score");
   const sortedZones = zones.slice().sort((a, b) => compareZones(a, b, sortKey));
 
@@ -28,27 +29,33 @@ export function ZoneEvacuationTable({ zones }: ZoneEvacuationTableProps) {
         <table className="zone-table">
           <thead>
             <tr>
-              <Header label="Zone ID" sortKey="zone_id" active={sortKey} setSortKey={setSortKey} />
-              <Header label="Pop" sortKey="population" active={sortKey} setSortKey={setSortKey} />
-              <Header label="Cutoff" sortKey="cutoff_time" active={sortKey} setSortKey={setSortKey} />
+              <Header label="Zone" sortKey="zone_id" active={sortKey} setSortKey={setSortKey} />
+              <Header label="Population" sortKey="population" active={sortKey} setSortKey={setSortKey} />
+              <Header label="Cutoff (min)" sortKey="cutoff_time" active={sortKey} setSortKey={setSortKey} />
               <Header
                 label="Priority"
                 sortKey="evacuation_priority_score"
                 active={sortKey}
                 setSortKey={setSortKey}
               />
-              <th>Base</th>
-              <th>Opt</th>
-              <Header label="Risk" sortKey="failure_risk_pct" active={sortKey} setSortKey={setSortKey} />
+              <th title="Baseline route viability score">Baseline</th>
+              <th title="Optimized route viability score">Optimized</th>
+              <Header label="Failure Risk" sortKey="failure_risk_pct" active={sortKey} setSortKey={setSortKey} />
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {sortedZones.map((zone) => (
               <tr
-                className={state.selectedZoneId === zone.zone_id ? "is-selected" : ""}
+                className={selectedZoneId === zone.zone_id ? "is-selected" : ""}
                 key={zone.zone_id}
-                onClick={() => dispatch({ type: "zoneSelected", zoneId: zone.zone_id })}
+                tabIndex={0}
+                role="button"
+                aria-pressed={selectedZoneId === zone.zone_id}
+                aria-label={`Select zone ${zone.zone_id}`}
+                onClick={() => selectZone(zone.zone_id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectZone(zone.zone_id); }}
+                style={{ cursor: "pointer" }}
               >
                 <td>{zone.zone_id}</td>
                 <td>{zone.population.toLocaleString()}</td>
@@ -59,7 +66,7 @@ export function ZoneEvacuationTable({ zones }: ZoneEvacuationTableProps) {
                 <td>{(zone.failure_risk_pct ?? 0).toFixed(0)}%</td>
                 <td>
                   <span className={`status-pill status-pill--${statusFor(zone.cutoff_time)}`}>
-                    {statusFor(zone.cutoff_time)}
+                    {statusIcon(zone.cutoff_time)} {statusFor(zone.cutoff_time)}
                   </span>
                 </td>
               </tr>
@@ -96,21 +103,20 @@ function Header({
 }
 
 function compareZones(a: ZoneResult, b: ZoneResult, key: SortKey) {
-  if (key === "zone_id") {
-    return a.zone_id.localeCompare(b.zone_id);
-  }
+  if (key === "zone_id") return a.zone_id.localeCompare(b.zone_id);
   return Number(b[key] ?? 0) - Number(a[key] ?? 0);
 }
 
 function statusFor(cutoff?: number | null) {
-  if (cutoff === null || cutoff === undefined) {
-    return "warning";
-  }
-  if (cutoff < 5) {
-    return "critical";
-  }
-  if (cutoff < 15) {
-    return "warning";
-  }
+  if (cutoff === null || cutoff === undefined) return "warning";
+  if (cutoff < 5) return "critical";
+  if (cutoff < 15) return "warning";
   return "safe";
+}
+
+function statusIcon(cutoff?: number | null) {
+  if (cutoff === null || cutoff === undefined) return "⚠";
+  if (cutoff < 5) return "✕";
+  if (cutoff < 15) return "⚠";
+  return "✓";
 }

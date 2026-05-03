@@ -1,7 +1,8 @@
-import { useToasts } from "../context/useToasts";
+import { useToastStore } from "../stores/toastStore";
 
 export function ToastContainer() {
-  const { toasts, removeToast } = useToasts();
+  const toasts = useToastStore((s) => s.toasts);
+  const dismiss = useToastStore((s) => s.dismiss);
 
   return (
     <div className="toast-stack" aria-live="polite" aria-label="System notifications">
@@ -15,9 +16,9 @@ export function ToastContainer() {
             className="icon-button icon-button--small"
             type="button"
             aria-label={`Dismiss ${toast.title}`}
-            onClick={() => removeToast(toast.id)}
+            onClick={() => dismiss(toast.id)}
           >
-            x
+            ✕
           </button>
         </article>
       ))}

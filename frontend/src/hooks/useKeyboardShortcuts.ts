@@ -1,31 +1,49 @@
 import { useEffect } from "react";
-import { useSimulationState } from "../context/useSimulationState";
-import type { ScenarioPreset } from "../types/api";
+import { useSimulationStore } from "../stores/simulationStore";
+import { useSimulation } from "./useSimulation";
 
 export function useKeyboardShortcuts() {
-  const { state, dispatch } = useSimulationState();
+  const setSelectIgnitionMode = useSimulationStore((s) => s.setSelectIgnitionMode);
+  const setPanel = useSimulationStore((s) => s.setPanel);
+  const setAnimation = useSimulationStore((s) => s.setAnimation);
+  const animation = useSimulationStore((s) => s.animation);
+  const result = useSimulationStore((s) => s.result);
+  const maxTimesteps = useSimulationStore((s) => s.maxTimesteps);
+  const { toggleDemoMode } = useSimulation();
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "d") {
+      // Ctrl+D — demo mode
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        toggleDemoMode();
         return;
       }
 
-      event.preventDefault();
-      const enabled = !state.demoMode;
-      dispatch({ type: "demoModeSet", enabled });
+      // Esc — cancel ignite mode / dismiss drawers
+      if (event.key === "Escape") {
+        setSelectIgnitionMode(false);
+        setPanel("controls", false);
+        setPanel("results", false);
+        return;
+      }
 
-      if (enabled) {
-        const campFireScenario = state.scenarios.find((scenario: ScenarioPreset) =>
-          scenario.name.toLowerCase().includes("camp fire"),
-        );
-        if (campFireScenario) {
-          dispatch({ type: "scenarioSelected", scenario: campFireScenario });
-        }
+      // Space — play/pause animation (only when result exists)
+      if (event.key === " " && result) {
+        event.preventDefault();
+        setAnimation({ playing: !animation.playing });
+        return;
+      }
+
+      // Arrow keys — scrub timeline
+      if (result) {
+        const max = result.max_timesteps ?? maxTimesteps;
+        if (event.key === "ArrowRight") setAnimation({ timestep: Math.min(max, animation.timestep + 1) });
+        else if (event.key === "ArrowLeft") setAnimation({ timestep: Math.max(0, animation.timestep - 1) });
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dispatch, state.demoMode, state.scenarios]);
+  }, [toggleDemoMode, setSelectIgnitionMode, setPanel, setAnimation, animation, result, maxTimesteps]);
 }

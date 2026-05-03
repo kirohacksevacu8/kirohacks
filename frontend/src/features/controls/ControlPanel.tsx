@@ -1,4 +1,5 @@
-import { useSimulationState } from "../../context/useSimulationState";
+import { useSimulationStore } from "../../stores/simulationStore";
+import type { SimulationStore } from "../../stores/simulationStore";
 import { useSimulation } from "../../hooks/useSimulation";
 import type { WindConditions } from "../../types/api";
 
@@ -16,13 +17,13 @@ const windFields: Array<{
 ];
 
 export function ControlPanel() {
-  const { state, dispatch } = useSimulationState();
-  const { fetchLiveWind, runSimulation } = useSimulation();
-  const running = state.status === "running";
-  const manualWind = state.windMode === "manual";
+  const store = useSimulationStore() as SimulationStore;
+  const { fetchLiveWind, runSimulation, cancelSimulation } = useSimulation();
+  const running = store.status === "running";
+  const manualWind = store.windMode === "manual";
 
   return (
-    <aside className={`panel control-panel ${state.panels.controls ? "is-open" : ""}`}>
+    <aside className={`panel control-panel ${store.panels.controls ? "is-open" : ""}`}>
       <div className="panel__header">
         <div>
           <span className="eyebrow">Control Panel</span>
@@ -32,17 +33,20 @@ export function ControlPanel() {
           className="icon-button panel__close"
           type="button"
           aria-label="Close controls"
-          onClick={() => dispatch({ type: "panelSet", panel: "controls", open: false })}
+          onClick={() => store.setPanel("controls", false)}
         >
-          x
+          ✕
         </button>
       </div>
 
-      {state.demoMode ? (
+      {store.demoMode ? (
         <section className="demo-steps" aria-label="Demo flow">
-          {["Select Ignition", "Fetch Wind", "Run Simulation", "Compare Routes", "Adjust and Re-run"].map(
+          {(["Select Ignition", "Fetch Wind", "Run Simulation", "Compare Routes", "Adjust and Re-run"] as const).map(
             (step, index) => (
-              <span className={index < demoStepIndex(state.status) ? "is-complete" : ""} key={step}>
+              <span
+                className={index < demoStepIndex(store) ? "is-complete" : ""}
+                key={step}
+              >
                 {index + 1}. {step}
               </span>
             ),
@@ -53,21 +57,19 @@ export function ControlPanel() {
       <section className="control-section">
         <div className="section-title">
           <h3>Scenario</h3>
-          <span>{state.scenarios.length} presets</span>
+          <span>{store.scenarios.length} presets</span>
         </div>
         <label className="field">
           <span>Preset</span>
           <select
-            value={state.selectedScenarioName}
+            value={store.selectedScenarioName}
             onChange={(event) => {
-              const scenario = state.scenarios.find((item) => item.name === event.target.value);
-              if (scenario) {
-                dispatch({ type: "scenarioSelected", scenario });
-              }
+              const scenario = store.scenarios.find((item) => item.name === event.target.value);
+              if (scenario) store.selectScenario(scenario);
             }}
           >
             <option>Custom scenario</option>
-            {state.scenarios.map((scenario) => (
+            {store.scenarios.map((scenario) => (
               <option key={scenario.name} value={scenario.name}>
                 {scenario.name}
               </option>
@@ -80,22 +82,25 @@ export function ControlPanel() {
         <div className="section-title">
           <h3>Ignition</h3>
           <button
-            className={`secondary-button ${state.selectIgnitionMode ? "is-active" : ""}`}
+            className={`secondary-button ${store.selectIgnitionMode ? "is-active" : ""}`}
             type="button"
-            onClick={() =>
-              dispatch({ type: "selectIgnitionModeSet", enabled: !state.selectIgnitionMode })
-            }
+            onClick={() => store.setSelectIgnitionMode(!store.selectIgnitionMode)}
           >
             Select on Map
           </button>
         </div>
+        {store.selectIgnitionMode ? (
+          <p className="ignite-banner" role="status">
+            Click the map to place ignition point — <kbd>Esc</kbd> to cancel
+          </p>
+        ) : null}
         <div className="coord-grid">
-          <Readout label="Lat" value={state.ignition.lat.toFixed(5)} />
-          <Readout label="Lon" value={state.ignition.lon.toFixed(5)} />
+          <Readout label="Lat" value={store.ignition.lat.toFixed(5)} />
+          <Readout label="Lon" value={store.ignition.lon.toFixed(5)} />
         </div>
-        {state.fieldErrors.ignition_lat || state.fieldErrors.ignition_lon ? (
+        {store.fieldErrors.ignition_lat || store.fieldErrors.ignition_lon ? (
           <p className="field-error">
-            {state.fieldErrors.ignition_lat ?? state.fieldErrors.ignition_lon}
+            {store.fieldErrors.ignition_lat ?? store.fieldErrors.ignition_lon}
           </p>
         ) : null}
       </section>
@@ -105,7 +110,7 @@ export function ControlPanel() {
           <h3>Wind</h3>
           <div className="segmented-control" role="group" aria-label="Wind mode">
             <button
-              className={state.windMode === "live" ? "is-selected" : ""}
+              className={store.windMode === "live" ? "is-selected" : ""}
               type="button"
               onClick={fetchLiveWind}
             >
@@ -114,13 +119,17 @@ export function ControlPanel() {
             <button
               className={manualWind ? "is-selected" : ""}
               type="button"
-              onClick={() => dispatch({ type: "windModeSet", mode: "manual" })}
+              onClick={() => store.setWindMode("manual")}
             >
               Manual
             </button>
           </div>
         </div>
-        <button className="secondary-button secondary-button--full" type="button" onClick={fetchLiveWind}>
+        <button
+          className="secondary-button secondary-button--full"
+          type="button"
+          onClick={fetchLiveWind}
+        >
           Fetch Live Wind
         </button>
         <div className="field-grid">
@@ -134,19 +143,15 @@ export function ControlPanel() {
                   min={item.min}
                   step={item.field === "wind_direction_deg" ? 1 : 0.5}
                   type="number"
-                  value={state.wind[item.field]}
+                  value={store.wind[item.field]}
                   onChange={(event) =>
-                    dispatch({
-                      type: "windFieldSet",
-                      field: item.field,
-                      value: Number(event.target.value),
-                    })
+                    store.setWindField(item.field, Number(event.target.value))
                   }
                 />
                 <span>{item.unit}</span>
               </div>
-              {state.fieldErrors[item.field] ? (
-                <span className="field-error">{state.fieldErrors[item.field]}</span>
+              {store.fieldErrors[item.field] ? (
+                <span className="field-error">{store.fieldErrors[item.field]}</span>
               ) : null}
             </label>
           ))}
@@ -156,7 +161,7 @@ export function ControlPanel() {
       <section className="control-section">
         <div className="section-title">
           <h3>Uncertainty</h3>
-          <output>{state.numRuns} runs</output>
+          <output>{store.numRuns} runs</output>
         </div>
         <input
           aria-label="Monte Carlo runs"
@@ -164,10 +169,12 @@ export function ControlPanel() {
           min={50}
           step={50}
           type="range"
-          value={state.numRuns}
-          onChange={(event) => dispatch({ type: "numRunsSet", value: Number(event.target.value) })}
+          value={store.numRuns}
+          onChange={(event) => store.setNumRuns(Number(event.target.value))}
         />
-        {state.fieldErrors.num_runs ? <p className="field-error">{state.fieldErrors.num_runs}</p> : null}
+        {store.fieldErrors.num_runs ? (
+          <p className="field-error">{store.fieldErrors.num_runs}</p>
+        ) : null}
       </section>
 
       <section className="control-section">
@@ -176,18 +183,17 @@ export function ControlPanel() {
           <span>WebGL overlays</span>
         </div>
         <div className="layer-list">
-          {Object.entries(state.layers).map(([layer, enabled]) => (
+          {Object.entries(store.layers).map(([layer, enabled]) => (
             <label className="toggle-row" key={layer}>
               <span>{layerLabel(layer)}</span>
               <input
                 checked={enabled}
                 type="checkbox"
                 onChange={(event) =>
-                  dispatch({
-                    type: "layerSet",
-                    layer: layer as keyof typeof state.layers,
-                    value: event.target.checked,
-                  })
+                  store.setLayer(
+                    layer as keyof typeof store.layers,
+                    event.target.checked,
+                  )
                 }
               />
             </label>
@@ -200,10 +206,8 @@ export function ControlPanel() {
             min={0.2}
             step={0.05}
             type="range"
-            value={state.burnOpacity}
-            onChange={(event) =>
-              dispatch({ type: "burnOpacitySet", value: Number(event.target.value) })
-            }
+            value={store.burnOpacity}
+            onChange={(event) => store.setBurnOpacity(Number(event.target.value))}
           />
         </label>
         <label className="field">
@@ -213,31 +217,39 @@ export function ControlPanel() {
             min={1}
             step={0.1}
             type="range"
-            value={state.terrainExaggeration}
-            onChange={(event) =>
-              dispatch({ type: "terrainExaggerationSet", value: Number(event.target.value) })
-            }
+            value={store.terrainExaggeration}
+            onChange={(event) => store.setTerrainExaggeration(Number(event.target.value))}
           />
         </label>
       </section>
 
-      {state.progress ? (
+      {store.progress ? (
         <section className="progress-card">
           <div className="progress-card__top">
-            <strong>{state.progress.phase}</strong>
+            <strong>{store.progress.phase}</strong>
             <span>
-              {state.progress.completedRuns} / {state.progress.totalRuns}
+              {store.progress.completedRuns} / {store.progress.totalRuns}
             </span>
           </div>
-          <progress value={state.progress.completedRuns} max={state.progress.totalRuns} />
-          <span>
-            elapsed {state.progress.elapsedSec.toFixed(1)}s, eta {state.progress.etaSec.toFixed(1)}s
-          </span>
+          <progress value={store.progress.completedRuns} max={store.progress.totalRuns} />
+          <div className="progress-card__footer">
+            <span>
+              elapsed {store.progress.elapsedSec.toFixed(1)}s, eta{" "}
+              {store.progress.etaSec.toFixed(1)}s
+            </span>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={cancelSimulation}
+            >
+              Cancel
+            </button>
+          </div>
           <div className="fire-preview" aria-hidden="true" />
         </section>
       ) : null}
 
-      {state.apiError ? <p className="api-error">{state.apiError}</p> : null}
+      {store.apiError ? <p className="api-error">{store.apiError}</p> : null}
 
       <button
         className="run-button"
@@ -245,7 +257,7 @@ export function ControlPanel() {
         disabled={running}
         onClick={() => void runSimulation()}
       >
-        {running ? "Running Simulation" : "Run Simulation"}
+        {running ? "Running Simulation…" : "Run Simulation"}
       </button>
     </aside>
   );
@@ -261,17 +273,19 @@ function Readout({ label, value }: { label: string; value: string }) {
 }
 
 function layerLabel(layer: string) {
-  return layer
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (char) => char.toUpperCase());
+  return layer.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 }
 
-function demoStepIndex(status: string) {
-  if (status === "complete") {
-    return 4;
-  }
-  if (status === "running") {
-    return 3;
-  }
-  return 1;
+function demoStepIndex(store: SimulationStore): number {
+  // Step 5: has a previous result (re-run done)
+  if (store.previousResult) return 5;
+  // Step 4: has a result (simulation complete)
+  if (store.status === "complete") return 4;
+  // Step 3: simulation running
+  if (store.status === "running") return 3;
+  // Step 2: wind has been fetched live
+  if (store.windMode === "live") return 2;
+  // Step 1: ignition differs from default (user set it)
+  if (store.selectIgnitionMode === false && store.ignition.lat !== 0) return 1;
+  return 0;
 }

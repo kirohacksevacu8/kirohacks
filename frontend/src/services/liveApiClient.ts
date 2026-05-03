@@ -24,6 +24,10 @@ interface PollingSimulationResponse {
   result?: SimulationResponse;
 }
 
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 12_000;
+
 export function createLiveApiClient(): ApiClient {
   const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -41,12 +45,17 @@ export function createLiveApiClient(): ApiClient {
     async runSimulation(
       simulationRequest: SimulationRequest,
       onProgress?: (progress: SimulationProgress) => void,
+      signal?: AbortSignal,
     ): Promise<SimulationResponse> {
-      const response = await fetchWithTimeout(`${baseUrl}/api/simulate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(simulationRequest),
-      });
+      const response = await fetchWithTimeout(
+        `${baseUrl}/api/simulate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(simulationRequest),
+        },
+        signal,
+      );
 
       if (response.status === 422) {
         throw new ApiValidationError(await validationIssues(response));
@@ -54,7 +63,13 @@ export function createLiveApiClient(): ApiClient {
 
       if (response.status === 202) {
         const pending = (await response.json()) as PendingSimulationResponse;
-        return pollSimulation(baseUrl, pending.job_id, simulationRequest.num_runs, onProgress);
+        return pollSimulation(
+          baseUrl,
+          pending.job_id,
+          simulationRequest.num_runs,
+          onProgress,
+          signal,
+        );
       }
 
       if (!response.ok) {
@@ -79,17 +94,49 @@ async function pollSimulation(
   jobId: string,
   totalRuns: number,
   onProgress?: (progress: SimulationProgress) => void,
+  signal?: AbortSignal,
 ): Promise<SimulationResponse> {
-  for (;;) {
-    await delay(1000);
-    const response = await fetchWithTimeout(`${baseUrl}/api/results/${jobId}`);
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let retried = false;
+
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new ApiRequestError("Simulation cancelled.", false);
+
+    await delay(POLL_INTERVAL_MS, signal);
+
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(`${baseUrl}/api/results/${jobId}`, {}, signal);
+    } catch (err) {
+      // Single retry with 2s backoff on network error
+      if (!retried) {
+        retried = true;
+        await delay(2000, signal);
+        response = await fetchWithTimeout(`${baseUrl}/api/results/${jobId}`, {}, signal);
+      } else {
+        throw err;
+      }
+    }
+
+    if (response.status === 404) {
+      throw new ApiRequestError(`Job ${jobId} not found. It may have expired.`, false);
+    }
+
+    if (response.status >= 500) {
+      if (!retried) {
+        retried = true;
+        await delay(2000, signal);
+        continue;
+      }
+      throw new ApiRequestError(await errorMessage(response));
+    }
 
     if (response.status === 202) {
       const progress = (await response.json()) as PollingSimulationResponse;
       onProgress?.({
         completedRuns: progress.runs_completed ?? 0,
         totalRuns: progress.total_runs ?? totalRuns,
-        elapsedSec: 0,
+        elapsedSec: (Date.now() - (deadline - POLL_TIMEOUT_MS)) / 1000,
         etaSec: progress.eta_seconds ?? 0,
         phase: progress.status ?? "running",
       });
@@ -101,15 +148,15 @@ async function pollSimulation(
     }
 
     const complete = (await response.json()) as PollingSimulationResponse | SimulationResponse;
-    if ("result" in complete && complete.result) {
-      return complete.result;
-    }
+    if ("result" in complete && complete.result) return complete.result;
     return complete as SimulationResponse;
   }
+
+  throw new ApiRequestError("Simulation timed out after 60 seconds.", false);
 }
 
-async function requestJson<T>(url: string): Promise<T> {
-  const response = await fetchWithTimeout(url);
+async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetchWithTimeout(url, {}, signal);
 
   if (response.status === 422) {
     throw new ApiValidationError(await validationIssues(response));
@@ -122,13 +169,23 @@ async function requestJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  externalSignal?: AbortSignal,
+): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  // Combine external cancel signal with internal timeout signal
+  externalSignal?.addEventListener("abort", () => controller.abort());
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
+    if (externalSignal?.aborted) {
+      throw new ApiRequestError("Simulation cancelled.", false);
+    }
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new ApiRequestError("Request timed out. Check the backend server and try again.");
     }
@@ -142,7 +199,6 @@ async function validationIssues(response: Response): Promise<ApiValidationIssue[
   const payload = (await response.json()) as {
     detail?: Array<{ loc?: Array<string | number>; msg?: string }>;
   };
-
   return (
     payload.detail?.map((issue) => ({
       field: String(issue.loc?.[issue.loc.length - 1] ?? "request"),
@@ -160,6 +216,12 @@ async function errorMessage(response: Response) {
   }
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const id = window.setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      window.clearTimeout(id);
+      reject(new ApiRequestError("Simulation cancelled.", false));
+    });
+  });
 }
