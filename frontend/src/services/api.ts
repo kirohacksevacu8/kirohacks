@@ -1,94 +1,15 @@
-/**
- * EvacuAI API Service Layer
- *
- * Provides a unified interface for API communication with the live backend.
- *
- * @see src/types/api.ts for type definitions
- */
+import { createLiveApiClient } from "./liveApiClient";
+import { createMockApiClient } from "./mockApiClient";
+import type { ApiClient, ApiMode } from "../types/api";
+export { ApiRequestError, ApiValidationError } from "./apiErrors";
 
-import type {
-  SimulateRequest,
-  SimulateResponse,
-  SimulationProgress,
-  SimulationResults,
-  WindData,
-  ScenarioPreset,
-  ShelterData,
-  ApiError,
-} from '../types/api';
-
-// ============================================================================
-// API Interface
-// ============================================================================
-
-export type ProgressCallback = (progress: SimulationProgress) => void;
-
-export interface EvacuAIApi {
-  simulate(
-    request: SimulateRequest,
-    onProgress?: ProgressCallback
-  ): Promise<SimulationResults>;
-
-  getResults(jobId: string): Promise<SimulationProgress | SimulationResults>;
-
-  getWind(lat: number, lon: number): Promise<WindData>;
-
-  getScenarios(): Promise<ScenarioPreset[]>;
-
-  getRegions(): Promise<string[]>;
-
-  getShelters(region?: string): Promise<ShelterData[]>;
+export function createApiClient(): ApiClient {
+  const mode = (import.meta.env.VITE_API_MODE ?? "mock") as ApiMode;
+  return mode === "live" ? createLiveApiClient() : createMockApiClient();
 }
 
-// ============================================================================
-// API Client Factory
-// ============================================================================
+export const apiClient = createApiClient();
 
-function getApiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+export function apiModeLabel() {
+  return (import.meta.env.VITE_API_MODE ?? "mock") === "live" ? "Live API" : "Mock API";
 }
-
-async function createApiClient(): Promise<EvacuAIApi> {
-  const { LiveApiClient } = await import('./liveApiClient');
-  return new LiveApiClient(getApiBaseUrl());
-}
-
-// ============================================================================
-// Singleton API Instance
-// ============================================================================
-
-let apiInstance: EvacuAIApi | null = null;
-let apiInitPromise: Promise<EvacuAIApi> | null = null;
-
-export async function getApi(): Promise<EvacuAIApi> {
-  if (apiInstance) return apiInstance;
-
-  if (!apiInitPromise) {
-    apiInitPromise = createApiClient().then((client) => {
-      apiInstance = client;
-      return client;
-    });
-  }
-
-  return apiInitPromise;
-}
-
-export function resetApi(): void {
-  apiInstance = null;
-  apiInitPromise = null;
-}
-
-// ============================================================================
-// Re-export types for convenience
-// ============================================================================
-
-export type {
-  SimulateRequest,
-  SimulateResponse,
-  SimulationProgress,
-  SimulationResults,
-  WindData,
-  ScenarioPreset,
-  ShelterData,
-  ApiError,
-};
