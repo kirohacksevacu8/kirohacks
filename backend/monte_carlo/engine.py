@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import networkx as nx
@@ -58,6 +58,7 @@ class MonteCarloEngine:
         num_runs: int = 500,
         seed: Optional[int] = None,
         max_timesteps: int = 180,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> MonteCarloResult:
         ss = np.random.SeedSequence(seed)
         child_seeds = ss.spawn(num_runs)
@@ -101,6 +102,8 @@ class MonteCarloEngine:
                 optimized_routes={},
                 civ_delay=civ_delay,
             ))
+            if progress_callback is not None:
+                progress_callback(i + 1, num_runs)
 
         # Aggregate
         burn_probability_map = burn_count.astype(np.float32) / num_runs

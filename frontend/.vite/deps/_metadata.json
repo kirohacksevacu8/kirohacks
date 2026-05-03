@@ -1,0 +1,90 @@
+{
+  "hash": "6ab2c526",
+  "configHash": "2cb10a44",
+  "lockfileHash": "69f88d65",
+  "browserHash": "6f6ff662",
+  "optimized": {
+    "@deck.gl/extensions": {
+      "src": "../../node_modules/@deck.gl/extensions/dist/index.js",
+      "file": "@deck__gl_extensions.js",
+      "fileHash": "4cb79bc4",
+      "needsInterop": false
+    },
+    "@deck.gl/layers": {
+      "src": "../../node_modules/@deck.gl/layers/dist/index.js",
+      "file": "@deck__gl_layers.js",
+      "fileHash": "6f52d51a",
+      "needsInterop": false
+    },
+    "@deck.gl/react": {
+      "src": "../../node_modules/@deck.gl/react/dist/index.js",
+      "file": "@deck__gl_react.js",
+      "fileHash": "7bda296b",
+      "needsInterop": false
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "eee2a3fd",
+      "needsInterop": true
+    },
+    "react-map-gl/mapbox": {
+      "src": "../../node_modules/react-map-gl/dist/mapbox.js",
+      "file": "react-map-gl_mapbox.js",
+      "fileHash": "dead82bb",
+      "needsInterop": false
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "c5a724ce",
+      "needsInterop": true
+    },
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "2cf700d4",
+      "needsInterop": true
+    },
+    "zustand": {
+      "src": "../../node_modules/zustand/esm/index.mjs",
+      "file": "zustand.js",
+      "fileHash": "391b9e38",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "array-utils-flat-Bju7gTeo": {
+      "file": "array-utils-flat-Bju7gTeo.js",
+      "isDynamicEntry": false
+    },
+    "chunk-CYJPkc-J": {
+      "file": "chunk-CYJPkc-J.js",
+      "isDynamicEntry": false
+    },
+    "layer-DR7LLdmp": {
+      "file": "layer-DR7LLdmp.js",
+      "isDynamicEntry": false
+    },
+    "mapbox-gl-DbL0rueV": {
+      "file": "mapbox-gl-DbL0rueV.js",
+      "isDynamicEntry": true
+    },
+    "orthographic-viewport-BmLxrKyC": {
+      "file": "orthographic-viewport-BmLxrKyC.js",
+      "isDynamicEntry": false
+    },
+    "react-dom-DnQuiull": {
+      "file": "react-dom-DnQuiull.js",
+      "isDynamicEntry": false
+    },
+    "shader-BokkZAiK": {
+      "file": "shader-BokkZAiK.js",
+      "isDynamicEntry": false
+    },
+    "webgl-device-DtCTgh9A": {
+      "file": "webgl-device-DtCTgh9A.js",
+      "isDynamicEntry": false
+    }
+  }
+}

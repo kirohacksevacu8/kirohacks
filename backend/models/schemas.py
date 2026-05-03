@@ -35,7 +35,7 @@ class SimulationRequest(BaseModel):
     wind_direction_deg: float = Field(225.0, ge=0, lt=360)
     wind_gust_mph: float = Field(20.0, ge=0, le=150)
     relative_humidity: float = Field(18.0, ge=0, le=100)
-    num_runs: int = Field(500, ge=1, le=2000)
+    num_runs: int = Field(50, ge=50, le=1000)
     max_timesteps: int = Field(180, ge=1, le=1440)
     scenario_preset: Optional[str] = None
     seed: Optional[int] = None
@@ -163,6 +163,26 @@ class WindResponse(BaseModel):
     conditions: WindConditions
     source: str
     forecast_text: Optional[str] = None
+
+
+class SimulationAcceptedResponse(BaseModel):
+    job_id: str
+    status: str
+    total_runs: int
+
+
+class SimulationProgressResponse(BaseModel):
+    job_id: str
+    status: str
+    runs_completed: int
+    total_runs: int
+    eta_seconds: float
+
+
+class SimulationResultEnvelope(BaseModel):
+    job_id: str
+    status: str
+    result: SimulationResponse
 
 
 # --- Ingest Models ---

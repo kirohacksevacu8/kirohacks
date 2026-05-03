@@ -141,7 +141,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
       fieldErrors: clearFields(s.fieldErrors, [field]),
     })),
 
-  numRuns: 500,
+  numRuns: 50,
   maxTimesteps: 180,
   setNumRuns: (value) =>
     set((s) => ({ numRuns: value, fieldErrors: clearFields(s.fieldErrors, ["num_runs"]) })),
@@ -178,7 +178,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
       progress: null,
       result,
       selectedZoneId: result.zone_results[0]?.zone_id ?? null,
-      selectedRouteId: result.zone_results[0]?.optimized_route?.route_id ?? null,
+      selectedRouteId: result.zone_results[0]?.optimized_route?.route_id ?? result.zone_results[0]?.baseline_route.route_id ?? null,
       modifiedWind: modifiedWind ?? s.modifiedWind,
       cancelController: null,
     })),
@@ -216,10 +216,10 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
   demoMode: false,
   panels: { controls: true, results: true },
   setDemoMode: (enabled) =>
-    set({
+    set((s) => ({
       demoMode: enabled,
-      selectedScenarioName: enabled ? "Camp Fire Fast Wind Shift" : "Custom scenario",
-    }),
+      selectedScenarioName: enabled ? s.selectedScenarioName : "Custom scenario",
+    })),
   setPanel: (panel, open) => set((s) => ({ panels: { ...s.panels, [panel]: open } })),
 
   animation: { playing: false, timestep: 0, speed: 1 },

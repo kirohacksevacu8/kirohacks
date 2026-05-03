@@ -31,9 +31,13 @@ export default function App() {
       .then((scenarios) => {
         if (!active) return;
         setScenarios(scenarios);
-        const campFire = scenarios.find((s) => s.name.toLowerCase().includes("camp fire"));
-        if (campFire && selectedScenarioName === "Custom scenario") {
-          selectScenario(campFire);
+        const preferredScenario = scenarios.find(
+          (scenario) =>
+            scenario.name.toLowerCase().includes("camp fire")
+            || scenario.description.toLowerCase().includes("camp fire"),
+        ) ?? scenarios[0];
+        if (preferredScenario && selectedScenarioName === "Custom scenario") {
+          selectScenario(preferredScenario);
         }
         if (scenarios.length === 0) {
           pushToast({ tone: "warning", title: "No scenarios available", message: "The scenarios endpoint returned an empty list." });

@@ -88,8 +88,12 @@ export function useSimulation() {
     const enabled = !store.demoMode;
     store.setDemoMode(enabled);
     if (enabled) {
-      const campFire = store.scenarios.find((s) => s.name.toLowerCase().includes("camp fire"));
-      if (campFire) store.selectScenario(campFire);
+      const preferredScenario = store.scenarios.find(
+        (scenario) =>
+          scenario.name.toLowerCase().includes("camp fire")
+          || scenario.description.toLowerCase().includes("camp fire"),
+      ) ?? store.scenarios[0];
+      if (preferredScenario) store.selectScenario(preferredScenario);
     }
   }
 

@@ -2,9 +2,16 @@
 Test script to verify NLCD WCS API works for Paradise, CA bounding box.
 Run: python backend/tests/test_nlcd_api.py
 """
+import os
 import io
 import sys
 import requests
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_NETWORK_TESTS") != "1",
+    reason="External API connectivity tests are opt-in; set RUN_NETWORK_TESTS=1 to enable.",
+)
 
 BBOX = {
     "min_lat": 39.65, "max_lat": 39.90,

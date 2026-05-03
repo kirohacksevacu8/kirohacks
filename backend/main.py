@@ -5,159 +5,35 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-def _zone_fire_exposure(zones, burn_probability_map, grid_bounds):
-    """Compute mean burn probability across grid cells within each zone polygon."""
-    import numpy as np
-    from shapely.geometry import shape, Point
-
-    gb = grid_bounds
-    H, W = burn_probability_map.shape
-    fire_exposure_probs = {}
-
-    for zone in zones:
-        geom = zone.geometry
-        if not geom or not geom.get("coordinates"):
-            # Fallback to centroid cell
-            row = max(0, min(H - 1, int((gb.max_lat - zone.centroid_lat) / (gb.max_lat - gb.min_lat) * H)))
-            col = max(0, min(W - 1, int((zone.centroid_lon - gb.min_lon) / (gb.max_lon - gb.min_lon) * W)))
-            fire_exposure_probs[zone.zone_id] = float(burn_probability_map[row, col])
-            continue
-
-        poly = shape(geom)
-        vals = []
-        # Get bounding box of polygon to limit iteration
-        minx, miny, maxx, maxy = poly.bounds  # (min_lon, min_lat, max_lon, max_lat)
-        r_start = max(0, int((gb.max_lat - maxy) / (gb.max_lat - gb.min_lat) * H))
-        r_end = min(H, int((gb.max_lat - miny) / (gb.max_lat - gb.min_lat) * H) + 1)
-        c_start = max(0, int((minx - gb.min_lon) / (gb.max_lon - gb.min_lon) * W))
-        c_end = min(W, int((maxx - gb.min_lon) / (gb.max_lon - gb.min_lon) * W) + 1)
-
-        for r in range(r_start, r_end):
-            lat = gb.max_lat - (r + 0.5) * (gb.max_lat - gb.min_lat) / H
-            for c in range(c_start, c_end):
-                lon = gb.min_lon + (c + 0.5) * (gb.max_lon - gb.min_lon) / W
-                if poly.contains(Point(lon, lat)):
-                    vals.append(float(burn_probability_map[r, c]))
-
-        fire_exposure_probs[zone.zone_id] = float(np.mean(vals)) if vals else 0.0
-
-    return fire_exposure_probs
+from backend.api.services.simulation_service import run_simulation
+from backend.data.loader import SeedDataLoader
+from backend.models.schemas import SimulationRequest
 
 
 def _run_simulation(args) -> dict:
-    import numpy as np
-    from backend.data.loader import SeedDataLoader
-    from backend.simulation.fire_spread import FireSpreadEngine
-    from backend.monte_carlo.engine import MonteCarloEngine
-    from backend.evacuation.router import EvacuationRouter
-    from backend.models.schemas import (
-        WindConditions, SimulationResponse, SimulationSummary,
-        BurnProbabilityMap, ArrivalTimeStats, ZoneResult, RouteResult,
-    )
+    default_ignition = None
+    if args.lat is None or args.lon is None:
+        loader = SeedDataLoader(seed_dir=args.seed_dir)
+        default_ignition = loader.load_region_config().default_ignition_point
 
-    loader = SeedDataLoader(seed_dir=args.seed_dir)
-    data = loader.load_all(load_fire_perimeter=False)
-
-    ignition_lat = args.lat if args.lat is not None else data.region_config.default_ignition_point.lat
-    ignition_lon = args.lon if args.lon is not None else data.region_config.default_ignition_point.lon
-
-    engine = FireSpreadEngine(data.fuel_grid, data.grid_bounds)
-    mc = MonteCarloEngine(engine, data.road_graph, data.zones, data.shelters)
-
-    t0 = time.time()
-    result = mc.run(
-        ignition_point=(ignition_lat, ignition_lon),
+    request = SimulationRequest(
+        ignition_lat=args.lat if args.lat is not None else default_ignition.lat,
+        ignition_lon=args.lon if args.lon is not None else default_ignition.lon,
         wind_speed_mph=args.wind_speed,
         wind_direction_deg=args.wind_dir,
         wind_gust_mph=args.wind_gust,
         relative_humidity=args.humidity,
         num_runs=args.num_runs,
+        max_timesteps=args.max_timesteps,
+        scenario_preset=args.scenario_preset,
         seed=args.seed,
-        max_timesteps=args.max_timesteps,
+        seed_dir=args.seed_dir,
     )
-    duration = time.time() - t0
-
-    router = EvacuationRouter(data.road_graph, data.zones, data.shelters, grid_bounds=data.grid_bounds)
-    baseline_routes = router.compute_baseline_routes()
-
-    fire_exposure_probs = _zone_fire_exposure(data.zones, result.burn_probability_map, data.grid_bounds)
-    ordering = router.compute_evacuation_ordering(data.zones, fire_exposure_probs)
-
-    cells_arr = result.cells_burned_per_run
-    mean_burned = float(np.mean(cells_arr))
-    median_burned = float(np.median(cells_arr))
-
-    def _nan_to_none(arr):
-        return [[None if np.isnan(v) else float(v) for v in row] for row in arr]
-
-    wind = WindConditions(
-        wind_speed_mph=args.wind_speed,
-        wind_direction_deg=args.wind_dir,
-        wind_gust_mph=args.wind_gust,
-        relative_humidity=args.humidity,
-    )
-
-    zone_results = []
-    for z in data.zones:
-        br = baseline_routes.get(z.zone_id)
-        if br is None:
-            continue
-        baseline_route = RouteResult(
-            route_id=f"baseline_{z.zone_id}",
-            zone_id=z.zone_id,
-            shelter_id=br.shelter_id,
-            path_coords=br.path_coords,
-            node_ids=br.node_ids,
-            total_travel_time_min=br.total_travel_time,
-            strategy="baseline",
-        )
-        fe = fire_exposure_probs.get(z.zone_id, 0.0)
-        max_pop = max((zz.population for zz in data.zones), default=1)
-        priority = (z.population / max_pop + (z.elderly_pct / 100) * 2.0 + (z.disability_pct / 100) * 1.5) * fe
-
-        zone_results.append(ZoneResult(
-            zone_id=z.zone_id,
-            population=z.population,
-            evacuation_priority_score=priority,
-            baseline_route=baseline_route,
-            geometry=z.geometry,
-        ))
-
-    response = SimulationResponse(
-        region_name=data.region_config.region_name,
-        scenario=args.scenario_preset or "custom",
-        num_runs=result.num_runs,
-        max_timesteps=args.max_timesteps,
-        wind=wind,
-        grid_bounds=data.grid_bounds,
-        burn_probability_map=BurnProbabilityMap(
-            grid_bounds=data.grid_bounds,
-            data=result.burn_probability_map.tolist(),
-        ),
-        arrival_time_stats=ArrivalTimeStats(
-            grid_bounds=data.grid_bounds,
-            mean=_nan_to_none(result.arrival_time_mean),
-            median=_nan_to_none(result.arrival_time_median),
-            p10=_nan_to_none(result.arrival_time_p10),
-            p90=_nan_to_none(result.arrival_time_p90),
-        ),
-        zone_results=zone_results,
-        evacuation_ordering=[o.zone_id for o in ordering],
-        summary=SimulationSummary(
-            mean_cells_burned=mean_burned,
-            median_cells_burned=median_burned,
-            simulation_duration_sec=round(duration, 2),
-            runs_completed=result.num_runs,
-        ),
-    )
-
-    return response.model_dump()
+    return run_simulation(request).model_dump()
 
 
 def _run_ingest(args) -> None:
@@ -189,7 +65,7 @@ def main():
     parser.add_argument("--wind-dir", type=float, default=225.0, dest="wind_dir")
     parser.add_argument("--wind-gust", type=float, default=20.0, dest="wind_gust")
     parser.add_argument("--humidity", type=float, default=18.0)
-    parser.add_argument("--num-runs", type=int, default=500, dest="num_runs")
+    parser.add_argument("--num-runs", type=int, default=50, dest="num_runs")
     parser.add_argument("--max-timesteps", type=int, default=180, dest="max_timesteps")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--seed-dir", type=str, default="backend/data/seed/paradise-ca/", dest="seed_dir")

@@ -25,7 +25,7 @@ interface PollingSimulationResponse {
 }
 
 const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 60_000;
+const POLL_TIMEOUT_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 12_000;
 
 export function createLiveApiClient(): ApiClient {
@@ -152,7 +152,7 @@ async function pollSimulation(
     return complete as SimulationResponse;
   }
 
-  throw new ApiRequestError("Simulation timed out after 60 seconds.", false);
+  throw new ApiRequestError("Simulation timed out after 5 minutes.", false);
 }
 
 async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
